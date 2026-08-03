@@ -1,0 +1,17 @@
+pyproject.toml
+branchs/__init__.py
+branchs/__main__.py
+branchs/cli.py
+branchs/gui.py
+branchs.egg-info/PKG-INFO
+branchs.egg-info/SOURCES.txt
+branchs.egg-info/dependency_links.txt
+branchs.egg-info/entry_points.txt
+branchs.egg-info/requires.txt
+branchs.egg-info/top_level.txt
+branchs/core/__init__.py
+branchs/core/branch.py
+branchs/core/commit.py
+branchs/core/config.py
+branchs/core/git.py
+branchs/core/remote.py

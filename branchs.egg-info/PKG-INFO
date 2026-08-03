@@ -1,0 +1,10 @@
+Metadata-Version: 2.4
+Name: branchs
+Version: 0.1.0
+Summary: Multi-branch management tool with GUI and CLI support
+Requires-Python: >=3.9
+Requires-Dist: gitpython>=3.1.40
+Requires-Dist: rich>=13.0.0
+Requires-Dist: click>=8.0.0
+Provides-Extra: gui
+Requires-Dist: tkinter; extra == "gui"

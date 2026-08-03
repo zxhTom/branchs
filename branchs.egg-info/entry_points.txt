@@ -1,0 +1,3 @@
+[console_scripts]
+branchs = branchs.cli:main
+branchs-gui = branchs.gui:main
