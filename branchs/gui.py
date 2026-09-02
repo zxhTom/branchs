@@ -7,9 +7,11 @@ import git
 
 from branchs.core.branch import (
     merge_branch,
+    rebase_branch,
     get_sibling_branches,
     get_diff_between_branches,
     MergeResult,
+    RebaseResult,
 )
 from branchs.core.commit import (
     commit_changes,
@@ -31,6 +33,10 @@ from branchs.core.git import (
     list_branches,
     has_uncommitted_changes,
     fetch_all,
+    rebase_abort,
+    rebase_continue,
+    rebase_skip,
+    is_rebasing,
 )
 from branchs.core.remote import sync_remotes
 
@@ -43,6 +49,8 @@ class BranchManagerGUI:
         self.root = root
         self.root.title("Branchs - Branch Manager")
         self.root.geometry("1024x768")
+
+        self._branch_combos = []
 
         try:
             self.repo = get_repo()
@@ -75,6 +83,7 @@ class BranchManagerGUI:
 
         self._create_branch_tab()
         self._create_merge_tab()
+        self._create_rebase_tab()
         self._create_commit_tab()
         self._create_remote_tab()
         self._create_config_tab()
@@ -120,7 +129,9 @@ class BranchManagerGUI:
 
         ttk.Label(detail_frame, text="Upstream:").grid(row=0, column=2, sticky=tk.W, padx=5, pady=2)
         self.upstream_var = tk.StringVar()
-        ttk.Entry(detail_frame, textvariable=self.upstream_var, width=30).grid(row=0, column=3, sticky=tk.W, padx=5, pady=2)
+        self.upstream_combo = ttk.Combobox(detail_frame, textvariable=self.upstream_var, width=28)
+        self.upstream_combo.grid(row=0, column=3, sticky=tk.W, padx=5, pady=2)
+        self._branch_combos.append(self.upstream_combo)
 
         ttk.Button(detail_frame, text="Save Config", command=self._save_branch_config).grid(row=0, column=4, padx=5)
         ttk.Button(detail_frame, text="Set as Default", command=self._set_default_from_gui).grid(row=0, column=5, padx=5)
@@ -131,12 +142,16 @@ class BranchManagerGUI:
 
         ttk.Label(frame, text="Source Branch:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
         self.merge_source_var = tk.StringVar()
-        ttk.Entry(frame, textvariable=self.merge_source_var, width=30).grid(row=0, column=1, padx=5, pady=5)
+        self.merge_source_combo = ttk.Combobox(frame, textvariable=self.merge_source_var, width=28)
+        self.merge_source_combo.grid(row=0, column=1, padx=5, pady=5)
+        self._branch_combos.append(self.merge_source_combo)
         ttk.Button(frame, text="Use Default", command=self._use_default_source).grid(row=0, column=2, padx=5)
 
         ttk.Label(frame, text="Target Branch:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
         self.merge_target_var = tk.StringVar()
-        ttk.Entry(frame, textvariable=self.merge_target_var, width=30).grid(row=1, column=1, padx=5, pady=5)
+        self.merge_target_combo = ttk.Combobox(frame, textvariable=self.merge_target_var, width=28)
+        self.merge_target_combo.grid(row=1, column=1, padx=5, pady=5)
+        self._branch_combos.append(self.merge_target_combo)
 
         ttk.Label(frame, text="Conflict Mode:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
         self.merge_mode_var = tk.StringVar(value="abort")
@@ -156,6 +171,44 @@ class BranchManagerGUI:
 
         frame.grid_rowconfigure(4, weight=1)
         frame.grid_columnconfigure(1, weight=1)
+
+    def _create_rebase_tab(self):
+        frame = ttk.Frame(self.notebook)
+        self.notebook.add(frame, text="Rebase")
+
+        ttk.Label(frame, text="Current / Branch to Rebase:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
+        self.rebase_branch_var = tk.StringVar()
+        self.rebase_branch_combo = ttk.Combobox(frame, textvariable=self.rebase_branch_var, width=28)
+        self.rebase_branch_combo.grid(row=0, column=1, padx=5, pady=5)
+        self._branch_combos.append(self.rebase_branch_combo)
+        ttk.Button(frame, text="Use Current", command=self._use_current_branch_for_rebase).grid(row=0, column=2, padx=5)
+
+        ttk.Label(frame, text="Upstream (Rebase onto):").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        self.rebase_upstream_var = tk.StringVar()
+        self.rebase_upstream_combo = ttk.Combobox(frame, textvariable=self.rebase_upstream_var, width=28)
+        self.rebase_upstream_combo.grid(row=1, column=1, padx=5, pady=5)
+        self._branch_combos.append(self.rebase_upstream_combo)
+
+        ttk.Label(frame, text="Conflict Mode:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
+        self.rebase_mode_var = tk.StringVar(value="abort")
+        ttk.Combobox(frame, textvariable=self.rebase_mode_var, values=MODE_OPTIONS, state="readonly").grid(
+            row=2, column=1, sticky=tk.W, padx=5, pady=5
+        )
+
+        btn_box = ttk.Frame(frame)
+        btn_box.grid(row=3, column=0, columnspan=3, pady=10)
+
+        ttk.Button(btn_box, text="Rebase", command=self._do_rebase).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_box, text="Continue", command=self._rebase_continue).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_box, text="Skip", command=self._rebase_skip).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_box, text="Abort", command=self._rebase_abort).pack(side=tk.LEFT, padx=5)
+
+        self.rebase_output = scrolledtext.ScrolledText(frame, height=20, width=80)
+        self.rebase_output.grid(row=4, column=0, columnspan=3, padx=5, pady=5, sticky="nsew")
+
+        frame.grid_rowconfigure(4, weight=1)
+        frame.grid_columnconfigure(1, weight=1)
+
 
     def _create_commit_tab(self):
         frame = ttk.Frame(self.notebook)
@@ -196,7 +249,9 @@ class BranchManagerGUI:
 
         ttk.Label(cp_frame, text="Target:").pack(side=tk.LEFT, padx=2)
         self.cp_target_var = tk.StringVar()
-        ttk.Entry(cp_frame, textvariable=self.cp_target_var, width=20).pack(side=tk.LEFT, padx=2)
+        self.cp_target_combo = ttk.Combobox(cp_frame, textvariable=self.cp_target_var, width=18)
+        self.cp_target_combo.pack(side=tk.LEFT, padx=2)
+        self._branch_combos.append(self.cp_target_combo)
         ttk.Button(cp_frame, text="Cherry-pick Selected", command=self._cherry_pick_selected).pack(side=tk.LEFT, padx=5)
         ttk.Button(cp_frame, text="Revert Selected", command=self._revert_selected).pack(side=tk.LEFT, padx=5)
 
@@ -231,7 +286,9 @@ class BranchManagerGUI:
 
         ttk.Label(frame, text="Default Branch:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
         self.default_branch_var = tk.StringVar(value=config.default_branch or "")
-        ttk.Entry(frame, textvariable=self.default_branch_var, width=30).grid(row=0, column=1, padx=5)
+        self.default_branch_combo = ttk.Combobox(frame, textvariable=self.default_branch_var, width=28)
+        self.default_branch_combo.grid(row=0, column=1, padx=5)
+        self._branch_combos.append(self.default_branch_combo)
         ttk.Button(frame, text="Save", command=self._save_config).grid(row=0, column=2, padx=5)
 
         ttk.Label(frame, text="Merge Mode:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
@@ -244,6 +301,7 @@ class BranchManagerGUI:
         if self.repo:
             self._refresh_branch_list()
             self._refresh_commit_history()
+            self._refresh_dropdowns()
 
     def _refresh_branch_list(self):
         if not self.repo:
@@ -259,6 +317,14 @@ class BranchManagerGUI:
             upstream = bc.upstream if bc and bc.upstream else "-"
             mark = "●" if name == current else ""
             self.branch_tree.insert("", tk.END, values=(name, btype, upstream, mark))
+
+    def _refresh_dropdowns(self):
+        if not self.repo:
+            return
+        branch_names = list_branches(self.repo)
+        branch_names.sort()
+        for combo in self._branch_combos:
+            combo["values"] = branch_names
 
     def _refresh_commit_history(self):
         if not self.repo:
@@ -353,6 +419,56 @@ class BranchManagerGUI:
         if report.conflict_files:
             self.merge_output.insert(tk.END, f"\nConflicts: {', '.join(report.conflict_files)}")
         self.merge_output.see(tk.END)
+
+    def _use_current_branch_for_rebase(self):
+        if self.repo:
+            current = get_current_branch(self.repo)
+            self.rebase_branch_var.set(current)
+
+    def _do_rebase(self):
+        if not self.repo:
+            messagebox.showerror("Error", "Not a git repository")
+            return
+
+        branch = self.rebase_branch_var.get() or None
+        upstream = self.rebase_upstream_var.get()
+        mode = self.rebase_mode_var.get()
+
+        if not upstream:
+            messagebox.showwarning("Warning", "Upstream branch is required")
+            return
+
+        report = rebase_branch(self.repo, upstream=upstream, branch=branch, mode=mode)
+        self.rebase_output.insert(tk.END, f"\n{report.result.value.upper()}: {report.message}")
+        if report.conflict_files:
+            self.rebase_output.insert(tk.END, f"\nConflicts: {', '.join(report.conflict_files)}")
+        self.rebase_output.see(tk.END)
+        self._refresh()
+
+    def _rebase_continue(self):
+        if not self.repo:
+            return
+        success, msg = rebase_continue(self.repo)
+        self.rebase_output.insert(tk.END, f"\n{'SUCCESS' if success else 'ERROR'}: {msg}")
+        self.rebase_output.see(tk.END)
+        self._refresh()
+
+    def _rebase_skip(self):
+        if not self.repo:
+            return
+        success, msg = rebase_skip(self.repo)
+        self.rebase_output.insert(tk.END, f"\n{'SUCCESS' if success else 'ERROR'}: {msg}")
+        self.rebase_output.see(tk.END)
+        self._refresh()
+
+    def _rebase_abort(self):
+        if not self.repo:
+            return
+        success, msg = rebase_abort(self.repo)
+        self.rebase_output.insert(tk.END, f"\n{'SUCCESS' if success else 'ERROR'}: {msg}")
+        self.rebase_output.see(tk.END)
+        self._refresh()
+
 
     def _suggest_commit_message(self):
         if self.repo:

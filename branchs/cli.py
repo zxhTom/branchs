@@ -14,6 +14,7 @@ from branchs.core.branch import (
     merge_branch,
     merge_to_multiple,
     merge_default_to_target,
+    rebase_branch,
     get_sibling_branches,
     get_diff_between_branches,
     get_diff_summary,
@@ -21,6 +22,7 @@ from branchs.core.branch import (
     get_upstream_branch,
     get_branch_fork_point,
     MergeResult,
+    RebaseResult,
 )
 from branchs.core.commit import (
     commit_changes,
@@ -47,6 +49,10 @@ from branchs.core.git import (
     list_branches,
     has_uncommitted_changes,
     fetch_all,
+    rebase_abort,
+    rebase_continue,
+    rebase_skip,
+    is_rebasing,
 )
 from branchs.core.remote import sync_remotes
 
@@ -177,6 +183,18 @@ def branch_diff(branch_a: str, branch_b: str, summary: bool):
             console.print("No differences")
 
 
+@branch.command("rebase")
+@click.option("--upstream", "-u", "-t", "--target", required=True, help="Upstream branch to rebase onto")
+@click.option("--branch", "-b", "-s", "--source", default=None, help="Branch to rebase (defaults to current branch)")
+@click.option("--mode", type=click.Choice(["abort", "keep"]), help="Conflict resolution mode")
+@click.option("--onto", help="Rebase onto a specific base")
+def branch_rebase(upstream: str, branch: Optional[str], mode: Optional[str], onto: Optional[str]):
+    """Rebase current branch (or specified branch) onto upstream branch"""
+    repo = get_repo_or_exit()
+    report = rebase_branch(repo, upstream=upstream, branch=branch, mode=mode, onto=onto)
+    _print_rebase_report(report)
+
+
 # ── merge commands ───────────────────────────────────────────────
 
 
@@ -238,6 +256,50 @@ def merge_default(target: str, mode: Optional[str]):
         _print_merge_report(report)
     else:
         console.print("[red]No default branch configured. Use 'branch set-default' first.[/red]")
+
+
+# ── rebase commands ──────────────────────────────────────────────
+
+
+@main.group()
+def rebase():
+    """Rebase operations"""
+
+
+@rebase.command("do")
+@click.option("--upstream", "-u", "-t", "--target", required=True, help="Upstream branch to rebase onto (e.g. b branch)")
+@click.option("--branch", "-b", "-s", "--source", default=None, help="Branch to rebase (defaults to current branch, e.g. a branch)")
+@click.option("--mode", type=click.Choice(["abort", "keep"]), help="Conflict resolution mode")
+@click.option("--onto", help="Rebase onto a specific base commit/branch")
+def rebase_do(upstream: str, branch: Optional[str], mode: Optional[str], onto: Optional[str]):
+    """Rebase current branch (or specified branch) onto upstream branch"""
+    repo = get_repo_or_exit()
+    report = rebase_branch(repo, upstream=upstream, branch=branch, mode=mode, onto=onto)
+    _print_rebase_report(report)
+
+
+@rebase.command("abort")
+def rebase_abort_cmd():
+    """Abort an in-progress rebase"""
+    repo = get_repo_or_exit()
+    success, msg = rebase_abort(repo)
+    print_result(success, msg)
+
+
+@rebase.command("continue")
+def rebase_continue_cmd():
+    """Continue an in-progress rebase after resolving conflicts"""
+    repo = get_repo_or_exit()
+    success, msg = rebase_continue(repo)
+    print_result(success, msg)
+
+
+@rebase.command("skip")
+def rebase_skip_cmd():
+    """Skip current commit during an in-progress rebase"""
+    repo = get_repo_or_exit()
+    success, msg = rebase_skip(repo)
+    print_result(success, msg)
 
 
 # ── commit commands ──────────────────────────────────────────────
@@ -435,5 +497,21 @@ def _print_merge_report(report) -> None:
         console.print(f"[red]✗[/red] {report.message}")
 
 
+def _print_rebase_report(report) -> None:
+    if report.result == RebaseResult.SUCCESS:
+        console.print(f"[green]✓[/green] {report.message}")
+    elif report.result == RebaseResult.ABORTED:
+        console.print(f"[yellow]⊘[/yellow] {report.message}")
+        if report.conflict_files:
+            console.print(f"[red]Conflict files:[/red] {', '.join(report.conflict_files)}")
+    elif report.result == RebaseResult.KEPT:
+        console.print(f"[yellow]![/yellow] {report.message}")
+        if report.conflict_files:
+            console.print(f"[red]Conflict files:[/red] {', '.join(report.conflict_files)}")
+    else:
+        console.print(f"[red]✗[/red] {report.message}")
+
+
 if __name__ == "__main__":
     main()
+

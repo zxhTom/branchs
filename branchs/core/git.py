@@ -118,3 +118,35 @@ def fetch_all(repo: git.Repo) -> bool:
         return True
     except git.GitCommandError:
         return False
+
+
+def is_rebasing(repo: git.Repo) -> bool:
+    git_dir = repo.git_dir
+    return os.path.exists(os.path.join(git_dir, "rebase-merge")) or os.path.exists(
+        os.path.join(git_dir, "rebase-apply")
+    )
+
+
+def rebase_abort(repo: git.Repo) -> tuple[bool, str]:
+    try:
+        msg = repo.git.rebase("--abort")
+        return True, msg or "Rebase aborted successfully"
+    except git.GitCommandError as e:
+        return False, str(e)
+
+
+def rebase_continue(repo: git.Repo) -> tuple[bool, str]:
+    try:
+        msg = repo.git.rebase("--continue")
+        return True, msg or "Rebase continued successfully"
+    except git.GitCommandError as e:
+        return False, str(e)
+
+
+def rebase_skip(repo: git.Repo) -> tuple[bool, str]:
+    try:
+        msg = repo.git.rebase("--skip")
+        return True, msg or "Commit skipped successfully"
+    except git.GitCommandError as e:
+        return False, str(e)
+

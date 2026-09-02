@@ -24,6 +24,14 @@ class MergeResult(Enum):
     FAILED = "failed"
 
 
+class RebaseResult(Enum):
+    SUCCESS = "success"
+    CONFLICT = "conflict"
+    ABORTED = "aborted"
+    KEPT = "kept"
+    FAILED = "failed"
+
+
 @dataclass
 class MergeReport:
     result: MergeResult
@@ -31,6 +39,16 @@ class MergeReport:
     target: str
     message: str
     conflict_files: list = field(default_factory=list)
+
+
+@dataclass
+class RebaseReport:
+    result: RebaseResult
+    branch: str
+    upstream: str
+    message: str
+    conflict_files: list = field(default_factory=list)
+
 
 
 def merge_branch(
@@ -196,3 +214,92 @@ def _get_conflict_files(repo: git.Repo) -> list:
         return [f for f in output.strip().split("\n") if f]
     except git.GitCommandError:
         return []
+
+
+def rebase_branch(
+    repo: git.Repo,
+    upstream: str,
+    branch: Optional[str] = None,
+    mode: Optional[str] = None,
+    onto: Optional[str] = None,
+) -> RebaseReport:
+    """Rebase `branch` (defaults to current branch) onto `upstream` branch."""
+    if mode is None:
+        config = load_config()
+        mode = config.default_merge_mode
+
+    original_branch = get_current_branch(repo)
+    target_branch = branch or original_branch
+
+    all_branches = [b.name for b in repo.branches]
+    if upstream not in all_branches:
+        return RebaseReport(
+            result=RebaseResult.FAILED,
+            branch=target_branch,
+            upstream=upstream,
+            message=f"Upstream branch '{upstream}' not found",
+        )
+
+    if target_branch not in all_branches:
+        return RebaseReport(
+            result=RebaseResult.FAILED,
+            branch=target_branch,
+            upstream=upstream,
+            message=f"Branch '{target_branch}' not found",
+        )
+
+    if target_branch == upstream:
+        return RebaseReport(
+            result=RebaseResult.FAILED,
+            branch=target_branch,
+            upstream=upstream,
+            message=f"Cannot rebase branch '{target_branch}' onto itself",
+        )
+
+    if get_current_branch(repo) != target_branch:
+        if not checkout_branch(repo, target_branch):
+            return RebaseReport(
+                result=RebaseResult.FAILED,
+                branch=target_branch,
+                upstream=upstream,
+                message=f"Failed to checkout branch '{target_branch}'",
+            )
+
+    rebase_args = []
+    if onto:
+        rebase_args.extend(["--onto", onto])
+    rebase_args.append(upstream)
+
+    try:
+        repo.git.rebase(*rebase_args)
+        return RebaseReport(
+            result=RebaseResult.SUCCESS,
+            branch=target_branch,
+            upstream=upstream,
+            message=f"Successfully rebased '{target_branch}' onto '{upstream}'",
+        )
+    except git.GitCommandError as e:
+        conflict_files = _get_conflict_files(repo)
+        if mode == "abort":
+            try:
+                repo.git.rebase("--abort")
+            except git.GitCommandError:
+                pass
+            if original_branch and original_branch != target_branch:
+                checkout_branch(repo, original_branch)
+            return RebaseReport(
+                result=RebaseResult.ABORTED,
+                branch=target_branch,
+                upstream=upstream,
+                message=f"Rebase aborted due to conflicts in {len(conflict_files)} file(s)" if conflict_files else f"Rebase aborted: {str(e)}",
+                conflict_files=conflict_files,
+            )
+        else:
+            return RebaseReport(
+                result=RebaseResult.KEPT,
+                branch=target_branch,
+                upstream=upstream,
+                message=f"Rebase conflicts detected in {len(conflict_files)} file(s). Status preserved on '{target_branch}'.",
+                conflict_files=conflict_files,
+            )
+
