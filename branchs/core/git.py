@@ -150,3 +150,30 @@ def rebase_skip(repo: git.Repo) -> tuple[bool, str]:
     except git.GitCommandError as e:
         return False, str(e)
 
+
+def list_remotes(repo: git.Repo) -> list[str]:
+    """Return a list of remote names for the repository."""
+    try:
+        return [r.name for r in repo.remotes]
+    except Exception:
+        return []
+
+
+def get_remotes_info(repo: git.Repo) -> list[dict]:
+    """Return detailed information for all remotes (name, url, fetch/push urls)."""
+    remotes_info = []
+    try:
+        for r in repo.remotes:
+            urls = list(r.urls)
+            remotes_info.append(
+                {
+                    "name": r.name,
+                    "url": urls[0] if urls else "",
+                    "all_urls": urls,
+                }
+            )
+    except Exception:
+        pass
+    return remotes_info
+
+

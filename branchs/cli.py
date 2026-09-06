@@ -47,6 +47,8 @@ from branchs.core.git import (
     get_repo,
     get_current_branch,
     list_branches,
+    list_remotes,
+    get_remotes_info,
     has_uncommitted_changes,
     fetch_all,
     rebase_abort,
@@ -435,6 +437,25 @@ def file_merge(file_path: str, source: str, target: str, mode: str):
 @main.group()
 def remote():
     """Remote management commands"""
+
+
+@remote.command("list")
+def remote_list():
+    """List all detected remotes in the repository"""
+    repo = get_repo_or_exit()
+    remotes = get_remotes_info(repo)
+    if not remotes:
+        console.print("[yellow]No remotes found in repository[/yellow]")
+        return
+
+    table = Table(title="Git Remotes")
+    table.add_column("Remote", style="cyan")
+    table.add_column("URL", style="green")
+
+    for r in remotes:
+        table.add_row(r["name"], r["url"])
+
+    console.print(table)
 
 
 @remote.command("set")

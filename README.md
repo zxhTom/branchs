@@ -181,6 +181,12 @@ branchs file merge config.yaml -s feature -t develop --mode abort
 
 ## 多 Remote 管理
 
+### 查看项目下已配置的 Remote
+
+```bash
+branchs remote list
+```
+
 ### 配置主副 remote
 
 ```bash

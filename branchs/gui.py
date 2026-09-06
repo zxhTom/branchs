@@ -25,12 +25,15 @@ from branchs.core.config import (
     save_config,
     set_branch_config,
     set_default_branch,
+    set_remote_config,
     BranchConfig,
 )
 from branchs.core.git import (
     get_repo,
     get_current_branch,
     list_branches,
+    list_remotes,
+    get_remotes_info,
     has_uncommitted_changes,
     fetch_all,
     rebase_abort,
@@ -51,6 +54,7 @@ class BranchManagerGUI:
         self.root.geometry("1024x768")
 
         self._branch_combos = []
+        self._remote_combos = []
 
         try:
             self.repo = get_repo()
@@ -262,21 +266,50 @@ class BranchManagerGUI:
         frame = ttk.Frame(self.notebook)
         self.notebook.add(frame, text="Remote Sync")
 
-        ttk.Label(frame, text="Primary Remote:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
+        # Top section: Remotes list
+        remotes_frame = ttk.LabelFrame(frame, text="Detected Remotes")
+        remotes_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        toolbar = ttk.Frame(remotes_frame)
+        toolbar.pack(fill=tk.X, padx=5, pady=2)
+        ttk.Button(toolbar, text="Scan / Refresh Remotes", command=self._refresh_remote_list).pack(side=tk.LEFT, padx=2)
+
+        columns = ("name", "url")
+        self.remote_tree = ttk.Treeview(remotes_frame, columns=columns, show="headings", height=5)
+        self.remote_tree.heading("name", text="Remote Name")
+        self.remote_tree.heading("url", text="URL")
+        self.remote_tree.column("name", width=120)
+        self.remote_tree.column("url", width=400)
+
+        remote_scroll = ttk.Scrollbar(remotes_frame, orient=tk.VERTICAL, command=self.remote_tree.yview)
+        self.remote_tree.configure(yscrollcommand=remote_scroll.set)
+        self.remote_tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=2)
+        remote_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Middle section: Sync configuration
+        sync_frame = ttk.LabelFrame(frame, text="Sync Settings")
+        sync_frame.pack(fill=tk.X, padx=5, pady=5)
+
+        ttk.Label(sync_frame, text="Primary Remote:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
         self.primary_remote_var = tk.StringVar(value="origin")
-        ttk.Entry(frame, textvariable=self.primary_remote_var, width=20).grid(row=0, column=1, padx=5)
+        self.primary_remote_combo = ttk.Combobox(sync_frame, textvariable=self.primary_remote_var, width=28)
+        self.primary_remote_combo.grid(row=0, column=1, padx=5, pady=5)
+        self._remote_combos.append(self.primary_remote_combo)
 
-        ttk.Label(frame, text="Secondary Remote:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(sync_frame, text="Secondary Remote:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
         self.secondary_remote_var = tk.StringVar(value="upstream")
-        ttk.Entry(frame, textvariable=self.secondary_remote_var, width=20).grid(row=1, column=1, padx=5)
+        self.secondary_remote_combo = ttk.Combobox(sync_frame, textvariable=self.secondary_remote_var, width=28)
+        self.secondary_remote_combo.grid(row=1, column=1, padx=5, pady=5)
+        self._remote_combos.append(self.secondary_remote_combo)
 
-        ttk.Button(frame, text="Sync", command=self._do_sync).grid(row=2, column=0, columnspan=2, pady=10)
+        btn_box = ttk.Frame(sync_frame)
+        btn_box.grid(row=2, column=0, columnspan=3, pady=5)
+        ttk.Button(btn_box, text="Save as Config", command=self._save_remote_config_from_gui).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_box, text="Sync", command=self._do_sync).pack(side=tk.LEFT, padx=5)
 
-        self.remote_output = scrolledtext.ScrolledText(frame, height=30, width=80)
-        self.remote_output.grid(row=3, column=0, columnspan=2, padx=5, pady=5, sticky="nsew")
-
-        frame.grid_rowconfigure(3, weight=1)
-        frame.grid_columnconfigure(1, weight=1)
+        # Bottom section: Output
+        self.remote_output = scrolledtext.ScrolledText(frame, height=15, width=80)
+        self.remote_output.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
     def _create_config_tab(self):
         frame = ttk.Frame(self.notebook)
@@ -300,6 +333,7 @@ class BranchManagerGUI:
     def _refresh(self):
         if self.repo:
             self._refresh_branch_list()
+            self._refresh_remote_list()
             self._refresh_commit_history()
             self._refresh_dropdowns()
 
@@ -318,6 +352,38 @@ class BranchManagerGUI:
             mark = "●" if name == current else ""
             self.branch_tree.insert("", tk.END, values=(name, btype, upstream, mark))
 
+    def _refresh_remote_list(self):
+        if not self.repo:
+            return
+        for item in self.remote_tree.get_children():
+            self.remote_tree.delete(item)
+
+        remotes = get_remotes_info(self.repo)
+        remote_names = [r["name"] for r in remotes]
+        for r in remotes:
+            self.remote_tree.insert("", tk.END, values=(r["name"], r["url"]))
+
+        for combo in self._remote_combos:
+            combo["values"] = remote_names
+
+        config = load_config()
+        if config.remote and config.remote.primary in remote_names:
+            self.primary_remote_var.set(config.remote.primary)
+            self.secondary_remote_var.set(config.remote.secondary or "")
+        else:
+            if not self.primary_remote_var.get() or self.primary_remote_var.get() not in remote_names:
+                if "origin" in remote_names:
+                    self.primary_remote_var.set("origin")
+                elif remote_names:
+                    self.primary_remote_var.set(remote_names[0])
+            if not self.secondary_remote_var.get() or self.secondary_remote_var.get() not in remote_names:
+                if "upstream" in remote_names:
+                    self.secondary_remote_var.set("upstream")
+                elif len(remote_names) > 1:
+                    remaining = [name for name in remote_names if name != self.primary_remote_var.get()]
+                    if remaining:
+                        self.secondary_remote_var.set(remaining[0])
+
     def _refresh_dropdowns(self):
         if not self.repo:
             return
@@ -325,6 +391,11 @@ class BranchManagerGUI:
         branch_names.sort()
         for combo in self._branch_combos:
             combo["values"] = branch_names
+
+        remote_names = list_remotes(self.repo)
+        remote_names.sort()
+        for combo in self._remote_combos:
+            combo["values"] = remote_names
 
     def _refresh_commit_history(self):
         if not self.repo:
@@ -337,6 +408,7 @@ class BranchManagerGUI:
             self.commit_tree.insert(
                 "", tk.END, values=(c.hash[:8], c.author, c.date.strftime("%Y-%m-%d"), c.message[:60])
             )
+
 
     def _fetch_all(self):
         if self.repo:
@@ -530,19 +602,36 @@ class BranchManagerGUI:
             else:
                 messagebox.showerror("Error", msg)
 
+    def _save_remote_config_from_gui(self):
+        primary = self.primary_remote_var.get().strip()
+        secondary = self.secondary_remote_var.get().strip()
+        if not primary or not secondary:
+            messagebox.showwarning("Warning", "Both primary and secondary remotes are required")
+            return
+        try:
+            set_remote_config(primary, secondary)
+            messagebox.showinfo("Done", f"Remote config saved: primary={primary}, secondary={secondary}")
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
+
     def _do_sync(self):
         if not self.repo:
             messagebox.showerror("Error", "Not a git repository")
             return
 
-        primary = self.primary_remote_var.get()
-        secondary = self.secondary_remote_var.get()
+        primary = self.primary_remote_var.get().strip()
+        secondary = self.secondary_remote_var.get().strip()
+
+        if not primary or not secondary:
+            messagebox.showwarning("Warning", "Both primary and secondary remotes are required")
+            return
 
         self.remote_output.insert(tk.END, "\nSyncing... Please wait...\n")
         self.remote_output.update()
 
         report = sync_remotes(self.repo, primary, secondary)
         self.remote_output.insert(tk.END, report.summary())
+
 
     def _save_config(self):
         config = load_config()
