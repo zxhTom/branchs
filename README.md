@@ -134,7 +134,7 @@ branchs commit auto
 # 自定义 message
 branchs commit auto -m "feat: 添加登录功能"
 
-# 显式提交所有改动或指定文件
+# 显式提交所有已暂存改动或指定的已暂存文件
 branchs commit auto --mode all
 branchs commit auto --mode all -f src/login.py -f tests/test_login.py
 ```
@@ -147,12 +147,12 @@ branchs commit auto --mode all -f src/login.py -f tests/test_login.py
 branchs branch set-type a feature --upstream b
 branchs commit publish -m "feat: 更新 a"
 branchs commit publish --preview  # 只查看新提交将包含的文件，不访问远端或修改仓库
-branchs commit publish --mode all -m "feat: 更新 a"  # 显式提交所有工作区改动
+branchs commit publish --mode all -m "feat: 更新 a"  # 显式提交所有已暂存改动
 ```
 
 `publish` 会抓取 `origin/a` 和 `origin/b`，先将本地 `a` 的提交接在最新的 `origin/a` 后面，再将 `a` 变基到 `origin/b`。工作区的未提交改动会临时保存，变基完成后恢复、提交并推送。若变基改写了已推送的提交，使用带明确期望值的 `--force-with-lease`；若远端有新的并发提交，推送会失败，保留本地提交。可用 `-r` 指定其他 remote。
 
-默认使用 `idea` 模式：只提交 IntelliJ IDEA 当前 changelist 中的文件，不提交 **Unversioned Files** 或其他 changelist 的文件。程序从 `.idea/workspace.xml` 读取当前 changelist；找不到项目或列表时会停止，不会扩大提交范围。同一文件跨多个 changelist 时，程序会停止，以免将其他列表中的代码片段提交；请在 IDEA 内完成这类分块提交。CLI 在执行前列出文件；GUI 的 **Commit** 页可切换模式、预览并确认。已经存在的本地提交也可能随推送一起上传，不属于这个“新提交文件”列表。
+所有提交模式都只使用 Git 暂存区中已有的改动。branchs 不运行 `git add`，未暂存的文件或同一文件的未暂存代码片段不会进入新提交。默认 `idea` 模式还要求暂存文件都属于 IntelliJ IDEA 当前 changelist；如果暂存区含有其他 changelist 的文件，就停止并提示先自行取消暂存。程序从 `.idea/workspace.xml` 读取当前 changelist；找不到项目或列表时会停止，不会扩大提交范围。**Unversioned Files** 不属于当前 changelist。同一文件跨多个 changelist 时也会停止，请在 IDEA 内完成这类分块提交。CLI 在执行前列出实际暂存文件；GUI 的 **Commit** 页可切换模式、预览并确认。已经存在的本地提交也可能随推送一起上传，不属于这个“新提交文件”列表。
 
 branchs 发起的 Git 网络命令始终直连，不使用环境变量或 Git 配置中的 HTTP 代理，也不会修改 Windows 或 Git 的持久代理配置。
 
@@ -241,10 +241,17 @@ branchs config set-mode keep   # 冲突保留现状
 branchs-gui
 ```
 
-包含 5 个标签页：
+GUI 会记住上次打开的仓库，下次启动时自动打开。窗口顶部的 **Repository** 下拉框或 **File → Recent Repos** 可切换最近使用的仓库；点击 **Open Repo...** 可添加其他仓库。已不存在的路径会自动跳过。最近仓库最多保存 10 个，记录保存在 `~/.config/branchs/config.json`。
+
+在 **Commit** 页，先选择提交类型（如 `fix`、`feat`、`chore`），填写摘要，可选填影响范围、详细说明和不兼容变更标记。提交信息按 [Conventional Commits 1.0.0](https://www.conventionalcommits.org/zh-hans/v1.0.0/) 生成，例如 `fix(gui): 修复内网连接`。下方表格列出当前模式将提交的已暂存文件。**Publish** 执行时会弹出进度窗口，显示正在查询远端、获取分支、变基、提交或推送的步骤。
+
+**Cherry-pick** 的 Target 表示接收所选提交的本地目标分支。成功后 GUI 会切回原分支；目标分支不会自动推送。
+
+包含 6 个标签页：
 
 - **Branches**: 分支列表、类型/上下游设置、默认分支、同级分支查看
 - **Merge**: 可视化合并操作，输出合并结果
 - **Rebase**: 可视化变基操作，支持 Rebase / Continue / Skip / Abort
 - **Commit**: 提交历史、自动提交、cherry-pick、revert
 - **Remote Sync**: 配置并执行远程同步，查看同步报告
+- **Config**: 设置默认分支、合并模式等

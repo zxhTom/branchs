@@ -26,6 +26,7 @@ from branchs.core.branch import (
 )
 from branchs.core.commit import (
     commit_changes,
+    get_staged_paths,
     get_commit_history,
     revert_commit,
     cherry_pick_commit,
@@ -49,7 +50,6 @@ from branchs.core.git import (
     list_branches,
     list_remotes,
     get_remotes_info,
-    has_uncommitted_changes,
     fetch_all,
     rebase_abort,
     rebase_continue,
@@ -316,14 +316,14 @@ def commit():
 
 @commit.command("auto")
 @click.option("--message", "-m", help="Custom commit message")
-@click.option("--file", "-f", multiple=True, help="Stage specific files")
+@click.option("--file", "-f", multiple=True, help="Require exactly these files to be staged; does not add files")
 @click.option("--mode", type=click.Choice(["idea", "all"]), default="idea", show_default=True)
 def commit_auto(message: Optional[str], file: tuple, mode: str):
-    """Auto-generate commit from current changes"""
+    """Commit already staged changes without adding files"""
     repo = get_repo_or_exit()
 
-    if not has_uncommitted_changes(repo):
-        console.print("[yellow]No changes to commit[/yellow]")
+    if not get_staged_paths(repo):
+        console.print("[yellow]No staged changes to commit; add files in Git or IDEA first[/yellow]")
         return
 
     if mode == "idea":

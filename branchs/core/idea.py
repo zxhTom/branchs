@@ -7,6 +7,8 @@ from xml.etree import ElementTree
 
 import git
 
+from branchs.core.commit import get_staged_paths
+
 
 @dataclass
 class IdeaSelection:
@@ -81,10 +83,7 @@ def get_active_changelist(repo: git.Repo) -> IdeaSelection:
     if unversioned:
         raise ValueError("Add these IDEA files to Git first: " + ", ".join(unversioned))
 
-    changed = [
-        path for path in sorted(selected)
-        if repo.git.status("--porcelain=v1", "--untracked-files=no", "--", path)
-    ]
+    changed = sorted(selected & set(get_staged_paths(repo)))
     return IdeaSelection(active.get("name", "Changes"), changed)
 
 
@@ -92,11 +91,14 @@ def commit_active_changelist(repo: git.Repo, message: Optional[str] = None, path
     selection = get_active_changelist(repo) if paths is None else None
     selected_paths = selection.paths if selection else paths
     if not selected_paths:
-        return False, "No changed files in the active IDEA changelist"
+        return False, "No staged files in the active IDEA changelist; add files in IDEA first"
+    outside = sorted(set(get_staged_paths(repo)) - set(selected_paths))
+    if outside:
+        return False, "Staged files outside the active IDEA changelist; unstage them first: " + ", ".join(outside)
     commit_message = message or "update IDEA changes"
     try:
-        # --only ignores already staged files outside this path list.
-        repo.git.commit("--only", "-m", commit_message, "--", *selected_paths)
+        # No paths or -a: git commit records exactly the existing index.
+        repo.git.commit("-m", commit_message)
         return True, commit_message
     except git.GitCommandError as exc:
         return False, str(exc)

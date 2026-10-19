@@ -61,6 +61,8 @@ class Config:
     default_diff_tool: Optional[str] = None
     branches: dict = field(default_factory=dict)
     remote: Optional[RemoteConfig] = None
+    last_repo: Optional[str] = None
+    recent_repos: list = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -69,6 +71,8 @@ class Config:
             "default_diff_tool": self.default_diff_tool,
             "branches": {k: v.to_dict() for k, v in self.branches.items()},
             "remote": self.remote.to_dict() if self.remote else None,
+            "last_repo": self.last_repo,
+            "recent_repos": self.recent_repos,
         }
 
     @classmethod
@@ -83,6 +87,8 @@ class Config:
             default_diff_tool=data.get("default_diff_tool"),
             branches=branches,
             remote=remote,
+            last_repo=data.get("last_repo"),
+            recent_repos=data.get("recent_repos", []),
         )
 
 
@@ -97,6 +103,18 @@ def save_config(config: Config) -> None:
     os.makedirs(CONFIG_DIR, exist_ok=True)
     with open(CONFIG_FILE, "w") as f:
         json.dump(config.to_dict(), f, indent=2)
+
+
+def remember_repo(path: str, limit: int = 10) -> None:
+    """Keep the most recently opened repository first, without duplicates."""
+    normalized = os.path.normpath(os.path.abspath(os.path.expanduser(path)))
+    config = load_config()
+    config.last_repo = normalized
+    config.recent_repos = [normalized] + [
+        item for item in config.recent_repos
+        if os.path.normcase(os.path.normpath(item)) != os.path.normcase(normalized)
+    ][:limit - 1]
+    save_config(config)
 
 
 def get_branch_config(name: str) -> Optional[BranchConfig]:

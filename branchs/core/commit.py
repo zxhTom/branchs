@@ -79,7 +79,7 @@ def get_commit_history(
 
 def generate_commit_message(repo: git.Repo) -> str:
     try:
-        status = repo.git.status("--short")
+        status = repo.git.diff("--cached", "--name-status", "--no-renames")
         if not status.strip():
             return ""
 
@@ -91,14 +91,13 @@ def generate_commit_message(repo: git.Repo) -> str:
         for line in status.strip().split("\n"):
             if not line:
                 continue
-            code = line[:2].strip()
-            fname = line[3:]
+            code, fname = line.split("\t", 1)
             files.append(fname)
-            if code == "M":
+            if code.startswith("M"):
                 modified.append(fname)
-            elif code == "A" or code == "??":
+            elif code.startswith("A"):
                 added.append(fname)
-            elif code == "D":
+            elif code.startswith("D"):
                 deleted.append(fname)
 
         parts = []
@@ -118,23 +117,28 @@ def commit_changes(
     repo: git.Repo,
     message: Optional[str] = None,
     files: Optional[list] = None,
-    all_changes: bool = True,
 ) -> tuple:
+    staged = get_staged_paths(repo)
+    if not staged:
+        return False, "No staged changes to commit; add files in Git or IDEA first"
+    if files and set(staged) != set(files):
+        return False, "Only already staged files can be committed; stage exactly the requested files first"
     if message is None:
         message = generate_commit_message(repo)
         if not message:
-            return False, "No changes to commit"
+            return False, "No staged changes to commit"
 
     try:
-        if files:
-            repo.git.add(*files)
-        elif all_changes:
-            repo.git.add(".")
-
         repo.git.commit("-m", message)
         return True, message
     except git.GitCommandError as e:
         return False, str(e)
+
+
+def get_staged_paths(repo: git.Repo) -> list:
+    """Return paths already in Git's index, including both sides of renames."""
+    output = repo.git.diff("--cached", "--name-only", "--no-renames", "-z")
+    return [path for path in output.split("\0") if path]
 
 
 def revert_commit(

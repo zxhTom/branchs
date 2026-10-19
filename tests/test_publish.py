@@ -10,7 +10,8 @@ import git
 
 from branchs.core.config import BranchConfig, BranchType
 from branchs.core.publish import publish_branch
-from branchs.core.publish import get_pending_files
+from branchs.core.publish import get_publish_selection
+from branchs.core.commit import commit_changes
 from branchs.core.network import git_network
 from branchs.core.idea import commit_active_changelist, get_active_changelist
 
@@ -69,14 +70,17 @@ class PublishTests(unittest.TestCase):
         run(self.local, "add", "staged")
         (self.local / "untracked").write_text("untracked")
 
-        result = publish_branch(git.Repo(self.local), message="my changes", mode="all")
+        stages = []
+        result = publish_branch(git.Repo(self.local), message="my changes", mode="all", progress=stages.append)
 
         self.assertTrue(result.success, result.message)
-        self.assertEqual(run(self.local, "status", "--porcelain"), "")
+        self.assertTrue(any("获取" in stage for stage in stages))
+        self.assertTrue(any("推送" in stage for stage in stages))
+        self.assertEqual(run(self.local, "status", "--porcelain"), "?? untracked")
         self.assertEqual(run(self.local, "rev-parse", "HEAD"), run(self.local, "ls-remote", "origin", "refs/heads/a").split()[0])
         self.assertEqual(
             set(run(self.local, "ls-tree", "-r", "--name-only", "HEAD").splitlines()),
-            {"base", "b2", "a1", "a2", "staged", "untracked"},
+            {"base", "b2", "a1", "a2", "staged"},
         )
         self.assertEqual(run(self.local, "log", "-1", "--format=%s"), "my changes")
 
@@ -88,6 +92,7 @@ class PublishTests(unittest.TestCase):
         (self.local / "base").write_text("local version")
         run(self.local, "commit", "-am", "change local")
         (self.local / "untracked").write_text("keep me")
+        run(self.local, "add", "untracked")
         original_remote = run(self.local, "ls-remote", "origin", "refs/heads/a")
 
         result = publish_branch(git.Repo(self.local), message="should not commit", mode="all")
@@ -95,17 +100,28 @@ class PublishTests(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertTrue((self.local / "untracked").exists())
         self.assertEqual(run(self.local, "ls-remote", "origin", "refs/heads/a"), original_remote)
-        self.assertEqual(run(self.local, "status", "--porcelain"), "?? untracked")
+        self.assertEqual(run(self.local, "status", "--porcelain"), "A  untracked")
 
-    def test_preview_lists_staged_unstaged_and_untracked_files(self):
+    def test_preview_lists_only_staged_files(self):
         (self.local / "staged").write_text("new")
         run(self.local, "add", "staged")
         (self.local / "base").write_text("edited")
         (self.local / "untracked").write_text("new")
 
-        pending = get_pending_files(git.Repo(self.local))
+        selection = get_publish_selection(git.Repo(self.local), "all")
 
-        self.assertEqual(set(pending), {"A  staged", " M base", "?? untracked"})
+        self.assertEqual(selection.paths, ["staged"])
+        self.assertEqual(selection.display, ["A\tstaged"])
+
+    def test_commit_does_not_add_unstaged_files(self):
+        (self.local / "base").write_text("changed")
+        (self.local / "untracked").write_text("new")
+
+        success, message = commit_changes(git.Repo(self.local), message="must not commit")
+
+        self.assertFalse(success)
+        self.assertIn("No staged changes", message)
+        self.assertEqual(run(self.local, "diff", "--cached", "--name-only"), "")
 
     def test_network_commands_override_git_http_proxy_without_changing_config(self):
         run(self.local, "config", "http.proxy", "http://proxy.invalid:8080")
@@ -181,8 +197,8 @@ class PublishTests(unittest.TestCase):
     def test_idea_mode_commits_only_active_changelist(self):
         self.write_idea_changelists(["base"], ["a1"])
         (self.local / "base").write_text("selected")
+        run(self.local, "add", "base")
         (self.local / "a1").write_text("not selected")
-        run(self.local, "add", "a1")
         (self.local / "untracked").write_text("not selected")
 
         selected = get_active_changelist(git.Repo(self.local))
@@ -191,7 +207,9 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(selected.paths, ["base"])
         self.assertTrue(success, message)
         self.assertEqual(run(self.local, "show", "--pretty=format:", "--name-only", "HEAD"), "base")
-        self.assertIn("M  a1", run(self.local, "status", "--short"))
+        self.assertIn(" M a1", subprocess.run(
+            ["git", "status", "--short"], cwd=self.local, check=True, text=True, capture_output=True
+        ).stdout)
         self.assertIn("?? untracked", run(self.local, "status", "--short"))
 
     def test_idea_mode_rejects_file_split_across_changelists(self):
@@ -215,8 +233,8 @@ class PublishTests(unittest.TestCase):
     def test_idea_publish_leaves_other_changes_uncommitted(self):
         self.write_idea_changelists(["base"], ["a1"])
         (self.local / "base").write_text("selected")
+        run(self.local, "add", "base")
         (self.local / "a1").write_text("other changelist")
-        run(self.local, "add", "a1")
         (self.local / "untracked").write_text("not selected")
 
         result = publish_branch(git.Repo(self.local), message="selected publish")
@@ -224,8 +242,33 @@ class PublishTests(unittest.TestCase):
         self.assertTrue(result.success, result.message)
         self.assertEqual(run(self.local, "show", "--pretty=format:", "--name-only", "HEAD"), "base")
         status = run(self.local, "status", "--short")
-        self.assertIn("M  a1", status)
+        self.assertIn("M a1", status)
         self.assertIn("?? untracked", status)
+
+    def test_idea_mode_rejects_staged_files_outside_active_changelist(self):
+        self.write_idea_changelists(["base"], ["a1"])
+        (self.local / "base").write_text("selected")
+        run(self.local, "add", "base")
+        (self.local / "a1").write_text("other")
+        run(self.local, "add", "a1")
+
+        result = publish_branch(git.Repo(self.local), message="must not commit")
+
+        self.assertFalse(result.success)
+        self.assertIn("outside the active IDEA changelist", result.message)
+        self.assertEqual(run(self.local, "ls-remote", "origin", "refs/heads/a").split()[0], run(self.local, "rev-parse", "HEAD"))
+
+    def test_idea_mode_commits_staged_content_only(self):
+        self.write_idea_changelists(["base"])
+        (self.local / "base").write_text("staged version")
+        run(self.local, "add", "base")
+        (self.local / "base").write_text("later unstaged version")
+
+        success, message = commit_active_changelist(git.Repo(self.local), "index only")
+
+        self.assertTrue(success, message)
+        self.assertEqual(run(self.local, "show", "HEAD:base"), "staged version")
+        self.assertEqual((self.local / "base").read_text(), "later unstaged version")
 
 
 if __name__ == "__main__":

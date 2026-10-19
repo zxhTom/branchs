@@ -1,11 +1,11 @@
 """Prepare a branch against its remote parent, then commit and publish it."""
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 import git
 
-from branchs.core.commit import commit_changes
+from branchs.core.commit import commit_changes, get_staged_paths
 from branchs.core.config import get_branch_config
 from branchs.core.git import get_current_branch, has_uncommitted_changes, is_rebasing
 from branchs.core.network import git_network
@@ -29,20 +29,20 @@ def _contains(repo: git.Repo, older: str) -> bool:
     return repo.git.merge_base(older, "HEAD").strip() == older
 
 
-def get_pending_files(repo: git.Repo) -> list[str]:
-    """Return the files that commit_changes will stage for a new commit."""
-    return repo.git.status("--porcelain=v1", "--untracked-files=all").splitlines()
-
-
 def get_publish_selection(repo: git.Repo, mode: str = "idea") -> PublishSelection:
     if mode == "all":
-        return PublishSelection("all working tree changes", get_pending_files(repo), [])
+        paths = get_staged_paths(repo)
+        display = repo.git.diff("--cached", "--name-status", "--no-renames").splitlines()
+        return PublishSelection("all staged changes", display, paths)
     if mode != "idea":
         raise ValueError(f"Unknown publish mode: {mode}")
     changelist = get_active_changelist(repo)
+    outside = sorted(set(get_staged_paths(repo)) - set(changelist.paths))
+    if outside:
+        raise ValueError("Staged files outside the active IDEA changelist; unstage them first: " + ", ".join(outside))
     display = []
     for path in changelist.paths:
-        display.extend(repo.git.status("--short", "--", path).splitlines())
+        display.extend(repo.git.diff("--cached", "--name-status", "--no-renames", "--", path).splitlines())
     return PublishSelection(f"IDEA changelist '{changelist.name}'", display, changelist.paths)
 
 
@@ -51,6 +51,7 @@ def publish_branch(
     message: Optional[str] = None,
     remote: str = "origin",
     mode: str = "idea",
+    progress: Optional[Callable[[str], None]] = None,
 ) -> PublishResult:
     """Sync remote branch, rebase onto its configured parent, commit and push.
 
@@ -58,10 +59,16 @@ def publish_branch(
     On failure the stash is retained if it cannot be restored cleanly.
     """
     with git_network(repo):
-        return _publish_branch(repo, message, remote, mode)
+        return _publish_branch(repo, message, remote, mode, progress)
 
 
-def _publish_branch(repo: git.Repo, message: Optional[str], remote: str, mode: str) -> PublishResult:
+def _publish_branch(repo: git.Repo, message: Optional[str], remote: str, mode: str,
+                    progress: Optional[Callable[[str], None]] = None) -> PublishResult:
+    def step(name: str) -> None:
+        if progress:
+            progress(name)
+
+    step("检查仓库与暂存文件")
     branch = get_current_branch(repo)
     config = get_branch_config(branch)
     if not config or not config.upstream:
@@ -78,12 +85,13 @@ def _publish_branch(repo: git.Repo, message: Optional[str], remote: str, mode: s
         selection = get_publish_selection(repo, mode)
     except ValueError as exc:
         return PublishResult(False, str(exc))
-    if mode == "idea" and has_uncommitted_changes(repo) and not selection.paths:
-        return PublishResult(False, "No changed files in the active IDEA changelist; nothing to commit")
+    if has_uncommitted_changes(repo) and not selection.paths:
+        return PublishResult(False, "No staged files to commit; add files in Git or IDEA first")
 
     # Resolve and fetch both heads before changing the working tree. A missing
     # remote branch is fine for the first publication of a local branch.
     try:
+        step("查询远端分支")
         heads = {}
         for line in repo.git.ls_remote("--heads", remote).splitlines():
             sha, ref = line.split("\t", 1)
@@ -94,6 +102,7 @@ def _publish_branch(repo: git.Repo, message: Optional[str], remote: str, mode: s
             return PublishResult(False, f"Parent '{remote}/{parent}' does not exist")
         for name in (parent, branch):
             if f"refs/heads/{name}" in heads:
+                step(f"获取 {remote}/{name}")
                 repo.git.fetch(remote, f"+refs/heads/{name}:refs/remotes/{remote}/{name}")
     except git.GitCommandError as exc:
         return PublishResult(False, f"Fetch failed: {exc}")
@@ -102,6 +111,7 @@ def _publish_branch(repo: git.Repo, message: Optional[str], remote: str, mode: s
     stash_oid = None
     if saved_changes:
         try:
+            step("暂存工作区状态")
             before = repo.git.rev_parse("-q", "--verify", "refs/stash", with_exceptions=False)
             repo.git.stash("push", "-u", "-m", f"branchs publish {branch}")
             stash_oid = repo.git.rev_parse("refs/stash")
@@ -113,7 +123,9 @@ def _publish_branch(repo: git.Repo, message: Optional[str], remote: str, mode: s
     failure = None
     try:
         if branch_ref in heads and not _contains(repo, heads[branch_ref]):
+            step(f"变基到 {remote}/{branch}")
             repo.git.rebase(f"refs/remotes/{remote}/{branch}")
+        step(f"变基到 {remote}/{parent}")
         repo.git.rebase(f"refs/remotes/{remote}/{parent}")
     except git.GitCommandError as exc:
         failure = f"Rebase failed: {exc}"
@@ -125,6 +137,7 @@ def _publish_branch(repo: git.Repo, message: Optional[str], remote: str, mode: s
 
     if stash_oid:
         try:
+            step("恢复工作区状态")
             repo.git.stash("apply", "--index", stash_oid)
             # The stash remains available until its changes are restored.
             if repo.git.rev_parse("refs/stash") == stash_oid:
@@ -135,15 +148,18 @@ def _publish_branch(repo: git.Repo, message: Optional[str], remote: str, mode: s
         return PublishResult(False, failure)
 
     if mode == "idea" and selection.paths:
+        step("提交已暂存文件")
         success, result = commit_active_changelist(repo, message=message, paths=selection.paths)
         if not success:
             return PublishResult(False, f"Commit failed: {result}")
-    elif mode == "all" and has_uncommitted_changes(repo):
+    elif mode == "all" and selection.paths:
+        step("提交已暂存文件")
         success, result = commit_changes(repo, message=message)
         if not success:
             return PublishResult(False, f"Commit failed: {result}")
 
     try:
+        step(f"推送到 {remote}/{branch}")
         # Use the exact remote value observed before the rebases as the lease.
         # A concurrent push is rejected even if a background fetch updates refs.
         if branch_ref in heads and not _contains(repo, heads[branch_ref]):

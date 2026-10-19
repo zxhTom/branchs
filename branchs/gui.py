@@ -1,4 +1,5 @@
-import sys
+import queue
+import threading
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
 from typing import Optional
@@ -15,6 +16,7 @@ from branchs.core.branch import (
 )
 from branchs.core.commit import (
     commit_changes,
+    get_staged_paths,
     get_commit_history,
     cherry_pick_commit,
     generate_commit_message,
@@ -27,14 +29,13 @@ from branchs.core.config import (
     set_default_branch,
     set_remote_config,
     BranchConfig,
+    remember_repo,
 )
 from branchs.core.git import (
-    get_repo,
     get_current_branch,
     list_branches,
     list_remotes,
     get_remotes_info,
-    has_uncommitted_changes,
     fetch_all,
     rebase_abort,
     rebase_continue,
@@ -45,6 +46,8 @@ from branchs.core.remote import sync_remotes
 from branchs.core.publish import get_publish_selection, publish_branch
 from branchs.core.idea import commit_active_changelist
 from branchs.core.network import git_network
+from branchs.core.repositories import open_repository, startup_repository
+from branchs.core.messages import COMMIT_TYPES, build_commit_message
 
 MODE_OPTIONS = ["abort", "keep"]
 BRANCH_TYPE_OPTIONS = [t.value for t in BranchType]
@@ -54,25 +57,58 @@ class BranchManagerGUI:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Branchs - Branch Manager")
-        self.root.geometry("1024x768")
+        self.root.geometry("1120x820")
+        self.root.minsize(900, 650)
+        self._setup_style()
+        self._publish_busy = False
 
         self._branch_combos = []
         self._remote_combos = []
 
-        try:
-            self.repo = get_repo()
-        except Exception:
-            self.repo = None
+        self.repo = startup_repository()
 
         self._create_menu()
         self._create_main_view()
+        if self.repo:
+            remember_repo(self.repo.working_tree_dir)
         self._refresh()
+
+    def _setup_style(self):
+        self.root.configure(background="#f3f5f9")
+        style = ttk.Style(self.root)
+        style.theme_use("clam")
+        style.configure(".", font=("Segoe UI", 10), background="#ffffff", foreground="#243148")
+        style.configure("TFrame", background="#ffffff")
+        style.configure("TLabel", background="#ffffff", foreground="#243148")
+        style.configure("TLabelFrame", background="#ffffff", bordercolor="#dfe5ee", relief="solid")
+        style.configure("TLabelFrame.Label", background="#ffffff", foreground="#34445f", font=("Segoe UI", 10, "bold"))
+        style.configure("TCheckbutton", background="#ffffff", foreground="#34445f")
+        style.configure("TButton", padding=(13, 8), borderwidth=0, background="#e7ecf4", foreground="#243148")
+        style.map("TButton", background=[("active", "#d8e2f0"), ("disabled", "#eff1f5")])
+        style.configure("Accent.TButton", background="#2563eb", foreground="#ffffff", font=("Segoe UI", 10, "bold"))
+        style.map("Accent.TButton", background=[("active", "#1d4ed8"), ("disabled", "#a7b9e5")])
+        style.configure("TEntry", padding=7, fieldbackground="#ffffff", bordercolor="#d4dce8")
+        style.configure("TCombobox", padding=7, fieldbackground="#ffffff", bordercolor="#d4dce8")
+        style.configure("TNotebook", background="#f3f5f9", borderwidth=0)
+        style.configure("TNotebook.Tab", padding=(20, 11), background="#e8edf5", foreground="#54647e")
+        style.map("TNotebook.Tab", background=[("selected", "#ffffff")], foreground=[("selected", "#1d4ed8")])
+        style.configure("Treeview", background="#ffffff", fieldbackground="#ffffff", foreground="#243148", rowheight=29, borderwidth=0)
+        style.configure("Treeview.Heading", background="#eef2f8", foreground="#43536c", font=("Segoe UI", 10, "bold"), padding=(8, 7))
+        style.map("Treeview", background=[("selected", "#dbeafe")], foreground=[("selected", "#1e3a8a")])
+        style.configure("Horizontal.TProgressbar", background="#2563eb", troughcolor="#e5eaf2", borderwidth=0)
+
+    def _style_text_outputs(self):
+        for widget in (self.merge_output, self.rebase_output, self.remote_output):
+            widget.configure(font=("Consolas", 10), background="#ffffff", foreground="#243148",
+                             insertbackground="#243148", relief="flat", padx=12, pady=10)
 
     def _create_menu(self):
         menubar = tk.Menu(self.root)
 
         file_menu = tk.Menu(menubar, tearoff=0)
         file_menu.add_command(label="Open Repo", command=self._open_repo)
+        self.recent_repo_menu = tk.Menu(file_menu, tearoff=0)
+        file_menu.add_cascade(label="Recent Repos", menu=self.recent_repo_menu)
         file_menu.add_command(label="Refresh", command=self._refresh)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.root.quit)
@@ -85,6 +121,15 @@ class BranchManagerGUI:
         self.root.config(menu=menubar)
 
     def _create_main_view(self):
+        repo_bar = ttk.Frame(self.root)
+        repo_bar.pack(fill=tk.X, padx=10, pady=(8, 0))
+        ttk.Label(repo_bar, text="Repository:").pack(side=tk.LEFT)
+        self.repo_path_var = tk.StringVar()
+        self.repo_combo = ttk.Combobox(repo_bar, textvariable=self.repo_path_var, state="readonly")
+        self.repo_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=6)
+        self.repo_combo.bind("<<ComboboxSelected>>", self._on_recent_repo_selected)
+        ttk.Button(repo_bar, text="Open Repo...", command=self._open_repo).pack(side=tk.LEFT)
+
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
@@ -94,6 +139,7 @@ class BranchManagerGUI:
         self._create_commit_tab()
         self._create_remote_tab()
         self._create_config_tab()
+        self._style_text_outputs()
 
     def _create_branch_tab(self):
         frame = ttk.Frame(self.notebook)
@@ -218,13 +264,45 @@ class BranchManagerGUI:
 
 
     def _create_commit_tab(self):
-        frame = ttk.Frame(self.notebook)
-        self.notebook.add(frame, text="Commit")
+        page = ttk.Frame(self.notebook)
+        self.notebook.add(page, text="Commit")
+        canvas = tk.Canvas(page, background="#ffffff", highlightthickness=0)
+        page_scroll = ttk.Scrollbar(page, orient=tk.VERTICAL, command=canvas.yview)
+        page_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        canvas.configure(yscrollcommand=page_scroll.set)
+        frame = ttk.Frame(canvas)
+        window = canvas.create_window((0, 0), window=frame, anchor="nw")
+        frame.bind("<Configure>", lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda event: canvas.itemconfigure(window, width=event.width))
 
-        ttk.Label(frame, text="Commit Message:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
-        self.commit_msg_var = tk.StringVar()
-        msg_entry = ttk.Entry(frame, textvariable=self.commit_msg_var, width=60)
-        msg_entry.grid(row=0, column=1, columnspan=2, sticky=tk.W, padx=5, pady=5)
+        message_frame = ttk.LabelFrame(frame, text="Commit message  ·  Conventional Commits")
+        message_frame.grid(row=0, column=0, columnspan=3, sticky="ew", padx=8, pady=(10, 6), ipadx=10, ipady=8)
+        message_frame.columnconfigure(2, weight=1)
+        self.commit_type_var = tk.StringVar()
+        self.commit_scope_var = tk.StringVar()
+        self.commit_summary_var = tk.StringVar()
+        self.commit_breaking_var = tk.BooleanVar()
+        ttk.Label(message_frame, text="类型").grid(row=0, column=0, sticky="w", padx=8, pady=5)
+        ttk.Label(message_frame, text="影响范围（可选）").grid(row=0, column=1, sticky="w", padx=8, pady=5)
+        ttk.Label(message_frame, text="摘要").grid(row=0, column=2, sticky="w", padx=8, pady=5)
+        ttk.Combobox(message_frame, textvariable=self.commit_type_var, values=list(COMMIT_TYPES),
+                     state="readonly", width=18).grid(row=1, column=0, sticky="ew", padx=8)
+        ttk.Entry(message_frame, textvariable=self.commit_scope_var, width=18).grid(row=1, column=1, sticky="ew", padx=8)
+        ttk.Entry(message_frame, textvariable=self.commit_summary_var).grid(row=1, column=2, sticky="ew", padx=8)
+        ttk.Label(message_frame, text="详细说明（可选）").grid(row=2, column=0, sticky="w", padx=8, pady=(10, 4))
+        self.commit_body_text = tk.Text(message_frame, height=2, wrap="word", font=("Segoe UI", 10),
+                                        background="#ffffff", foreground="#243148", relief="flat", padx=8, pady=6)
+        self.commit_body_text.grid(row=3, column=0, columnspan=3, sticky="ew", padx=8)
+        ttk.Checkbutton(message_frame, text="不兼容变更 (!)", variable=self.commit_breaking_var).grid(
+            row=4, column=0, sticky="w", padx=8, pady=6)
+        self.commit_preview_var = tk.StringVar()
+        ttk.Label(message_frame, textvariable=self.commit_preview_var, foreground="#2563eb").grid(
+            row=4, column=1, columnspan=2, sticky="w", padx=8)
+        for variable in (self.commit_type_var, self.commit_scope_var, self.commit_summary_var, self.commit_breaking_var):
+            variable.trace_add("write", lambda *_: self._update_commit_preview())
+        self.commit_body_text.bind("<KeyRelease>", lambda _event: self._update_commit_preview())
+        self._update_commit_preview()
 
         mode_frame = ttk.Frame(frame)
         mode_frame.grid(row=1, column=0, columnspan=3, sticky=tk.W, padx=5, pady=5)
@@ -232,25 +310,43 @@ class BranchManagerGUI:
         self.commit_mode_var = tk.StringVar(value="IDEA current changelist")
         mode_combo = ttk.Combobox(
             mode_frame, textvariable=self.commit_mode_var,
-            values=("IDEA current changelist", "All changes"), state="readonly", width=22,
+            values=("IDEA current changelist", "All staged changes"), state="readonly", width=22,
         )
         mode_combo.pack(side=tk.LEFT, padx=2)
         mode_combo.bind("<<ComboboxSelected>>", lambda _event: self._refresh_pending_files())
         btn_frame = ttk.Frame(frame)
         btn_frame.grid(row=2, column=0, columnspan=3, pady=5)
-        ttk.Button(btn_frame, text="Suggest Message", command=self._suggest_commit_message).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame, text="Suggest Summary", command=self._suggest_commit_message).pack(side=tk.LEFT, padx=2)
         ttk.Button(btn_frame, text="Commit", command=self._commit_all).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="Publish (Sync, Commit & Push)", command=self._publish_current).pack(side=tk.LEFT, padx=2)
+        self.publish_button = ttk.Button(btn_frame, text="Publish  ·  Sync / Commit / Push",
+                                         command=self._publish_current, style="Accent.TButton")
+        self.publish_button.pack(side=tk.LEFT, padx=2)
         ttk.Button(btn_frame, text="Refresh Files", command=self._refresh_pending_files).pack(side=tk.LEFT, padx=2)
         ttk.Button(btn_frame, text="Refresh History", command=self._refresh_commit_history).pack(side=tk.LEFT, padx=2)
 
         self.commit_repo_var = tk.StringVar(value="No repository open")
         ttk.Label(frame, textvariable=self.commit_repo_var).grid(row=3, column=0, columnspan=3, sticky=tk.W, padx=5)
-        ttk.Label(frame, text="Files for new commit in selected mode:").grid(
+        ttk.Label(frame, text="STAGED FILES FOR NEW COMMIT").grid(
             row=4, column=0, columnspan=3, sticky=tk.W, padx=5
         )
-        self.pending_files_text = scrolledtext.ScrolledText(frame, height=6, width=80, state="disabled")
-        self.pending_files_text.grid(row=5, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
+        self.pending_status_var = tk.StringVar()
+        ttk.Label(frame, textvariable=self.pending_status_var, foreground="#64748b").grid(
+            row=4, column=1, columnspan=2, sticky="e", padx=10)
+        files_frame = ttk.Frame(frame)
+        files_frame.grid(row=5, column=0, columnspan=3, sticky="ew", padx=8, pady=6)
+        files_frame.columnconfigure(0, weight=1)
+        self.pending_files_tree = ttk.Treeview(files_frame, columns=("change", "path"), show="headings", height=5)
+        self.pending_files_tree.heading("change", text="CHANGE")
+        self.pending_files_tree.heading("path", text="FILE")
+        self.pending_files_tree.column("change", width=110, anchor="center", stretch=False)
+        self.pending_files_tree.column("path", width=700)
+        self.pending_files_tree.grid(row=0, column=0, sticky="ew")
+        pending_scroll = ttk.Scrollbar(files_frame, orient=tk.VERTICAL, command=self.pending_files_tree.yview)
+        pending_scroll.grid(row=0, column=1, sticky="ns")
+        self.pending_files_tree.configure(yscrollcommand=pending_scroll.set)
+        self.pending_files_tree.tag_configure("added", foreground="#15803d")
+        self.pending_files_tree.tag_configure("deleted", foreground="#b91c1c")
+        self.pending_files_tree.tag_configure("modified", foreground="#1d4ed8")
 
         columns = ("hash", "author", "date", "message")
         self.commit_tree = ttk.Treeview(frame, columns=columns, show="headings", height=15)
@@ -270,7 +366,7 @@ class BranchManagerGUI:
         self.commit_tree.grid(row=6, column=0, columnspan=3, sticky="nsew", padx=5, pady=5)
         scrollbar.grid(row=6, column=3, sticky="ns")
 
-        cp_frame = ttk.LabelFrame(frame, text="Cherry-pick")
+        cp_frame = ttk.LabelFrame(frame, text="Cherry-pick  ·  Copy selected commit to target branch, then return here (no push)")
         cp_frame.grid(row=7, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
 
         ttk.Label(cp_frame, text="Target:").pack(side=tk.LEFT, padx=2)
@@ -357,12 +453,57 @@ class BranchManagerGUI:
         )
 
     def _refresh(self):
+        self._refresh_repo_selector()
         if self.repo:
             self._refresh_branch_list()
             self._refresh_remote_list()
             self._refresh_commit_history()
             self._refresh_pending_files()
             self._refresh_dropdowns()
+
+    def _refresh_repo_selector(self):
+        current = self.repo.working_tree_dir if self.repo else ""
+        recent = []
+        for path in load_config().recent_repos:
+            try:
+                resolved = open_repository(path).working_tree_dir
+            except (ValueError, OSError):
+                continue
+            if resolved not in recent:
+                recent.append(resolved)
+        if current and current not in recent:
+            recent.insert(0, current)
+        self.repo_combo["values"] = recent
+        self.repo_path_var.set(current)
+        self.recent_repo_menu.delete(0, tk.END)
+        if recent:
+            for path in recent:
+                self.recent_repo_menu.add_command(
+                    label=path, command=lambda selected=path: self._switch_repo(selected)
+                )
+        else:
+            self.recent_repo_menu.add_command(label="No recent repositories", state=tk.DISABLED)
+        self.root.title(f"Branchs - {current}" if current else "Branchs - Branch Manager")
+
+    def _on_recent_repo_selected(self, _event):
+        self._switch_repo(self.repo_path_var.get())
+
+    def _switch_repo(self, path: str):
+        if self._publish_busy:
+            return
+        try:
+            repo = open_repository(path)
+            remember_repo(repo.working_tree_dir)
+        except (ValueError, OSError) as exc:
+            messagebox.showerror("Error", f"Cannot open repository: {exc}")
+            self._refresh_repo_selector()
+            return
+        self.repo = repo
+        self.branch_type_var.set("")
+        self.upstream_var.set("")
+        self.primary_remote_var.set("")
+        self.secondary_remote_var.set("")
+        self._refresh()
 
     def _refresh_branch_list(self):
         if not self.repo:
@@ -577,22 +718,47 @@ class BranchManagerGUI:
 
     def _suggest_commit_message(self):
         if self.repo:
-            msg = generate_commit_message(self.repo)
-            self.commit_msg_var.set(msg)
+            self.commit_summary_var.set(generate_commit_message(self.repo))
+
+    def _update_commit_preview(self):
+        scope = self.commit_scope_var.get().strip()
+        summary = self.commit_summary_var.get().strip() or "<填写摘要>"
+        prefix = COMMIT_TYPES.get(self.commit_type_var.get(), "<选择类型>")
+        self.commit_preview_var.set(
+            f"预览  {prefix}{f'({scope})' if scope else ''}{'!' if self.commit_breaking_var.get() else ''}: {summary}"
+        )
+
+    def _commit_message(self):
+        return build_commit_message(
+            self.commit_type_var.get(), self.commit_summary_var.get(), self.commit_scope_var.get(),
+            self.commit_body_text.get("1.0", "end-1c"), self.commit_breaking_var.get(),
+        )
+
+    def _clear_commit_message(self):
+        self.commit_summary_var.set("")
+        self.commit_scope_var.set("")
+        self.commit_body_text.delete("1.0", tk.END)
+        self.commit_breaking_var.set(False)
 
     def _refresh_pending_files(self):
         if not self.repo:
             return
         self.commit_repo_var.set(f"Repository: {self.repo.working_tree_dir}    Branch: {get_current_branch(self.repo)}")
+        for item in self.pending_files_tree.get_children():
+            self.pending_files_tree.delete(item)
         try:
             selection = get_publish_selection(self.repo, self._commit_mode())
-            content = f"{selection.description}\n" + ("\n".join(selection.display) or "No matching changes")
+            self.pending_status_var.set(f"{selection.description}  ·  {len(selection.display)} file(s)")
+            for line in selection.display:
+                code, _, path = line.partition("\t")
+                label, tag = ({"A": ("ADDED", "added"), "D": ("DELETED", "deleted")}
+                              .get(code[:1], ("MODIFIED", "modified")))
+                self.pending_files_tree.insert("", tk.END, values=(label, path or code), tags=(tag,))
+            if not selection.display:
+                self.pending_files_tree.insert("", tk.END, values=("—", "No staged files in selected mode"))
         except ValueError as exc:
-            content = str(exc)
-        self.pending_files_text.configure(state="normal")
-        self.pending_files_text.delete("1.0", tk.END)
-        self.pending_files_text.insert(tk.END, content)
-        self.pending_files_text.configure(state="disabled")
+            self.pending_status_var.set("Selection needs attention")
+            self.pending_files_tree.insert("", tk.END, values=("NOTICE", str(exc)))
 
     def _commit_mode(self):
         return "idea" if self.commit_mode_var.get() == "IDEA current changelist" else "all"
@@ -600,34 +766,37 @@ class BranchManagerGUI:
     def _commit_all(self):
         if not self.repo:
             return
-        if not has_uncommitted_changes(self.repo):
-            messagebox.showinfo("Info", "No changes to commit")
+        if not get_staged_paths(self.repo):
+            messagebox.showinfo("Info", "No staged changes to commit; add files in IDEA or Git first")
             return
 
-        msg = self.commit_msg_var.get()
         try:
+            msg = self._commit_message()
             if self._commit_mode() == "idea":
-                success, result = commit_active_changelist(self.repo, message=msg or None)
+                success, result = commit_active_changelist(self.repo, message=msg)
             else:
-                success, result = commit_changes(self.repo, message=msg or None)
+                success, result = commit_changes(self.repo, message=msg)
         except ValueError as exc:
             messagebox.showerror("Commit failed", str(exc))
             return
         self._refresh_pending_files()
         if success:
-            self.commit_msg_var.set("")
+            self._clear_commit_message()
             self._refresh_commit_history()
             messagebox.showinfo("Done", f"Committed: {result}")
         else:
             messagebox.showerror("Error", result)
 
     def _publish_current(self):
+        if self._publish_busy:
+            return
         if not self.repo:
             messagebox.showerror("Error", "Not a git repository")
             return
         mode = self._commit_mode()
         try:
             selection = get_publish_selection(self.repo, mode)
+            message = self._commit_message() if selection.paths else None
         except ValueError as exc:
             messagebox.showerror("Publish failed", str(exc))
             return
@@ -640,15 +809,71 @@ class BranchManagerGUI:
             f"Mode: {selection.description}\nFiles for the new commit:\n{summary}\n\nSync, rebase, commit and push?",
         ):
             return
-        message = self.commit_msg_var.get() or None
-        result = publish_branch(self.repo, message=message, mode=mode)
-        self._refresh_pending_files()
-        if result.success:
-            self.commit_msg_var.set("")
+        self._start_publish(message, mode)
+
+    def _start_publish(self, message, mode):
+        self._publish_busy = True
+        self.publish_button.configure(state="disabled")
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Publishing branch")
+        dialog.geometry("540x190")
+        dialog.resizable(False, False)
+        dialog.configure(background="#ffffff")
+        dialog.transient(self.root)
+        dialog.protocol("WM_DELETE_WINDOW", lambda: None)
+        ttk.Label(dialog, text="Publishing branch", font=("Segoe UI", 16, "bold")).pack(anchor="w", padx=24, pady=(22, 8))
+        stage_var = tk.StringVar(value="Starting…")
+        ttk.Label(dialog, textvariable=stage_var).pack(anchor="w", padx=24, pady=(0, 12))
+        progress = ttk.Progressbar(dialog, mode="indeterminate", length=480)
+        progress.pack(fill="x", padx=24)
+        progress.start(12)
+        ttk.Label(dialog, text="Network steps may take some time. Current step is shown above.",
+                  foreground="#64748b").pack(anchor="w", padx=24, pady=14)
+        dialog.grab_set()
+        events = queue.Queue()
+        repo = self.repo
+
+        def worker():
+            try:
+                result = publish_branch(repo, message=message, mode=mode,
+                                        progress=lambda stage: events.put(("stage", stage)))
+                events.put(("result", result))
+            except Exception as exc:
+                events.put(("error", str(exc)))
+
+        def poll():
+            finished = None
+            while True:
+                try:
+                    kind, value = events.get_nowait()
+                except queue.Empty:
+                    break
+                if kind == "stage":
+                    stage_var.set(value)
+                else:
+                    finished = (kind, value)
+            if finished is None:
+                dialog.after(100, poll)
+                return
+            progress.stop()
+            dialog.grab_release()
+            dialog.destroy()
+            self._publish_busy = False
+            self.publish_button.configure(state="normal")
+            self._refresh_pending_files()
             self._refresh_commit_history()
-            messagebox.showinfo("Done", result.message)
-        else:
-            messagebox.showerror("Publish failed", result.message)
+            kind, value = finished
+            if kind == "error":
+                messagebox.showerror("Publish failed", value)
+            elif value.success:
+                if message:
+                    self._clear_commit_message()
+                messagebox.showinfo("Done", value.message)
+            else:
+                messagebox.showerror("Publish failed", value.message)
+
+        threading.Thread(target=worker, daemon=True).start()
+        dialog.after(100, poll)
 
     def _cherry_pick_selected(self):
         sel = self.commit_tree.selection()
@@ -736,11 +961,7 @@ class BranchManagerGUI:
 
         path = filedialog.askdirectory(title="Select Git Repository")
         if path:
-            try:
-                self.repo = git.Repo(path)
-                self._refresh()
-            except Exception as e:
-                messagebox.showerror("Error", f"Invalid git repository: {e}")
+            self._switch_repo(path)
 
 
 def main():
