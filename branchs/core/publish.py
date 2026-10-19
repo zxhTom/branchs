@@ -9,12 +9,20 @@ from branchs.core.commit import commit_changes
 from branchs.core.config import get_branch_config
 from branchs.core.git import get_current_branch, has_uncommitted_changes, is_rebasing
 from branchs.core.network import git_network
+from branchs.core.idea import commit_active_changelist, get_active_changelist
 
 
 @dataclass
 class PublishResult:
     success: bool
     message: str
+
+
+@dataclass
+class PublishSelection:
+    description: str
+    display: list[str]
+    paths: list[str]
 
 
 def _contains(repo: git.Repo, older: str) -> bool:
@@ -26,10 +34,23 @@ def get_pending_files(repo: git.Repo) -> list[str]:
     return repo.git.status("--porcelain=v1", "--untracked-files=all").splitlines()
 
 
+def get_publish_selection(repo: git.Repo, mode: str = "idea") -> PublishSelection:
+    if mode == "all":
+        return PublishSelection("all working tree changes", get_pending_files(repo), [])
+    if mode != "idea":
+        raise ValueError(f"Unknown publish mode: {mode}")
+    changelist = get_active_changelist(repo)
+    display = []
+    for path in changelist.paths:
+        display.extend(repo.git.status("--short", "--", path).splitlines())
+    return PublishSelection(f"IDEA changelist '{changelist.name}'", display, changelist.paths)
+
+
 def publish_branch(
     repo: git.Repo,
     message: Optional[str] = None,
     remote: str = "origin",
+    mode: str = "idea",
 ) -> PublishResult:
     """Sync remote branch, rebase onto its configured parent, commit and push.
 
@@ -37,10 +58,10 @@ def publish_branch(
     On failure the stash is retained if it cannot be restored cleanly.
     """
     with git_network(repo):
-        return _publish_branch(repo, message, remote)
+        return _publish_branch(repo, message, remote, mode)
 
 
-def _publish_branch(repo: git.Repo, message: Optional[str], remote: str) -> PublishResult:
+def _publish_branch(repo: git.Repo, message: Optional[str], remote: str, mode: str) -> PublishResult:
     branch = get_current_branch(repo)
     config = get_branch_config(branch)
     if not config or not config.upstream:
@@ -52,6 +73,13 @@ def _publish_branch(repo: git.Repo, message: Optional[str], remote: str) -> Publ
         return PublishResult(False, f"Remote '{remote}' does not exist")
     if is_rebasing(repo) or repo.git.ls_files("-u") or repo.git.rev_parse("-q", "--verify", "MERGE_HEAD", with_exceptions=False):
         return PublishResult(False, "Finish the current merge or rebase before publishing")
+
+    try:
+        selection = get_publish_selection(repo, mode)
+    except ValueError as exc:
+        return PublishResult(False, str(exc))
+    if mode == "idea" and has_uncommitted_changes(repo) and not selection.paths:
+        return PublishResult(False, "No changed files in the active IDEA changelist; nothing to commit")
 
     # Resolve and fetch both heads before changing the working tree. A missing
     # remote branch is fine for the first publication of a local branch.
@@ -106,7 +134,11 @@ def _publish_branch(repo: git.Repo, message: Optional[str], remote: str) -> Publ
     if failure:
         return PublishResult(False, failure)
 
-    if has_uncommitted_changes(repo):
+    if mode == "idea" and selection.paths:
+        success, result = commit_active_changelist(repo, message=message, paths=selection.paths)
+        if not success:
+            return PublishResult(False, f"Commit failed: {result}")
+    elif mode == "all" and has_uncommitted_changes(repo):
         success, result = commit_changes(repo, message=message)
         if not success:
             return PublishResult(False, f"Commit failed: {result}")

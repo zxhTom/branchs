@@ -128,14 +128,15 @@ branchs branch rebase -u <b_branch>
 ### 自动提交
 
 ```bash
-# 基于改动自动生成 commit message
+# IDEA 当前 changelist（默认）
 branchs commit auto
 
 # 自定义 message
 branchs commit auto -m "feat: 添加登录功能"
 
-# 只提交指定文件
-branchs commit auto -f src/login.py -f tests/test_login.py
+# 显式提交所有改动或指定文件
+branchs commit auto --mode all
+branchs commit auto --mode all -f src/login.py -f tests/test_login.py
 ```
 
 ### 同步父分支后提交并推送
@@ -146,11 +147,12 @@ branchs commit auto -f src/login.py -f tests/test_login.py
 branchs branch set-type a feature --upstream b
 branchs commit publish -m "feat: 更新 a"
 branchs commit publish --preview  # 只查看新提交将包含的文件，不访问远端或修改仓库
+branchs commit publish --mode all -m "feat: 更新 a"  # 显式提交所有工作区改动
 ```
 
 `publish` 会抓取 `origin/a` 和 `origin/b`，先将本地 `a` 的提交接在最新的 `origin/a` 后面，再将 `a` 变基到 `origin/b`。工作区的未提交改动会临时保存，变基完成后恢复、提交并推送。若变基改写了已推送的提交，使用带明确期望值的 `--force-with-lease`；若远端有新的并发提交，推送会失败，保留本地提交。可用 `-r` 指定其他 remote。
 
-新提交会包含当前仓库中所有已暂存、未暂存和未跟踪的文件。CLI 在执行前列出这些文件；GUI 的 **Commit** 页显示文件列表，点击 **Publish (Sync, Commit & Push)** 时再次确认。已经存在的本地提交也可能随推送一起上传，但不属于这个“新提交文件”列表。
+默认使用 `idea` 模式：只提交 IntelliJ IDEA 当前 changelist 中的文件，不提交 **Unversioned Files** 或其他 changelist 的文件。程序从 `.idea/workspace.xml` 读取当前 changelist；找不到项目或列表时会停止，不会扩大提交范围。同一文件跨多个 changelist 时，程序会停止，以免将其他列表中的代码片段提交；请在 IDEA 内完成这类分块提交。CLI 在执行前列出文件；GUI 的 **Commit** 页可切换模式、预览并确认。已经存在的本地提交也可能随推送一起上传，不属于这个“新提交文件”列表。
 
 branchs 发起的 Git 网络命令始终直连，不使用环境变量或 Git 配置中的 HTTP 代理，也不会修改 Windows 或 Git 的持久代理配置。
 

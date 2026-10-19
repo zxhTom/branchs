@@ -12,6 +12,7 @@ from branchs.core.config import BranchConfig, BranchType
 from branchs.core.publish import publish_branch
 from branchs.core.publish import get_pending_files
 from branchs.core.network import git_network
+from branchs.core.idea import commit_active_changelist, get_active_changelist
 
 
 def run(cwd, *args):
@@ -68,7 +69,7 @@ class PublishTests(unittest.TestCase):
         run(self.local, "add", "staged")
         (self.local / "untracked").write_text("untracked")
 
-        result = publish_branch(git.Repo(self.local), message="my changes")
+        result = publish_branch(git.Repo(self.local), message="my changes", mode="all")
 
         self.assertTrue(result.success, result.message)
         self.assertEqual(run(self.local, "status", "--porcelain"), "")
@@ -89,7 +90,7 @@ class PublishTests(unittest.TestCase):
         (self.local / "untracked").write_text("keep me")
         original_remote = run(self.local, "ls-remote", "origin", "refs/heads/a")
 
-        result = publish_branch(git.Repo(self.local), message="should not commit")
+        result = publish_branch(git.Repo(self.local), message="should not commit", mode="all")
 
         self.assertFalse(result.success)
         self.assertTrue((self.local / "untracked").exists())
@@ -161,6 +162,70 @@ class PublishTests(unittest.TestCase):
             with git_network(repo):
                 self.assertIn("refs/heads/a", repo.git.ls_remote("--heads", "origin"))
             self.assertEqual(len(proxy_requests), 1)
+
+    def write_idea_changelists(self, active_paths, other_paths=()):
+        idea = self.local / ".idea"
+        idea.mkdir(exist_ok=True)
+        def changes(paths):
+            return "".join(
+                f'<change beforePath="$PROJECT_DIR$/{path}" afterPath="$PROJECT_DIR$/{path}" />'
+                for path in paths
+            )
+        (idea / "workspace.xml").write_text(
+            '<project><component name="ChangeListManager">'
+            f'<list name="Current" default="true">{changes(active_paths)}</list>'
+            f'<list name="Other">{changes(other_paths)}</list>'
+            '</component></project>'
+        )
+
+    def test_idea_mode_commits_only_active_changelist(self):
+        self.write_idea_changelists(["base"], ["a1"])
+        (self.local / "base").write_text("selected")
+        (self.local / "a1").write_text("not selected")
+        run(self.local, "add", "a1")
+        (self.local / "untracked").write_text("not selected")
+
+        selected = get_active_changelist(git.Repo(self.local))
+        success, message = commit_active_changelist(git.Repo(self.local), "selected commit")
+
+        self.assertEqual(selected.paths, ["base"])
+        self.assertTrue(success, message)
+        self.assertEqual(run(self.local, "show", "--pretty=format:", "--name-only", "HEAD"), "base")
+        self.assertIn("M  a1", run(self.local, "status", "--short"))
+        self.assertIn("?? untracked", run(self.local, "status", "--short"))
+
+    def test_idea_mode_rejects_file_split_across_changelists(self):
+        self.write_idea_changelists(["base"], ["base"])
+        (self.local / "base").write_text("changed")
+        with self.assertRaisesRegex(ValueError, "splits these files"):
+            get_active_changelist(git.Repo(self.local))
+
+    def test_idea_mode_does_not_fall_back_to_all_changes_without_idea_data(self):
+        (self.local / "base").write_text("changed")
+        (self.local / "untracked").write_text("not selected")
+        original_head = run(self.local, "rev-parse", "HEAD")
+
+        result = publish_branch(git.Repo(self.local), message="must not commit")
+
+        self.assertFalse(result.success)
+        self.assertIn("IDEA project not found", result.message)
+        self.assertEqual(run(self.local, "rev-parse", "HEAD"), original_head)
+        self.assertEqual(run(self.local, "status", "--short"), "M base\n?? untracked")
+
+    def test_idea_publish_leaves_other_changes_uncommitted(self):
+        self.write_idea_changelists(["base"], ["a1"])
+        (self.local / "base").write_text("selected")
+        (self.local / "a1").write_text("other changelist")
+        run(self.local, "add", "a1")
+        (self.local / "untracked").write_text("not selected")
+
+        result = publish_branch(git.Repo(self.local), message="selected publish")
+
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(run(self.local, "show", "--pretty=format:", "--name-only", "HEAD"), "base")
+        status = run(self.local, "status", "--short")
+        self.assertIn("M  a1", status)
+        self.assertIn("?? untracked", status)
 
 
 if __name__ == "__main__":

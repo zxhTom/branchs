@@ -57,7 +57,8 @@ from branchs.core.git import (
     is_rebasing,
 )
 from branchs.core.remote import sync_remotes
-from branchs.core.publish import get_pending_files, publish_branch
+from branchs.core.publish import get_publish_selection, publish_branch
+from branchs.core.idea import commit_active_changelist
 
 console = Console()
 
@@ -316,7 +317,8 @@ def commit():
 @commit.command("auto")
 @click.option("--message", "-m", help="Custom commit message")
 @click.option("--file", "-f", multiple=True, help="Stage specific files")
-def commit_auto(message: Optional[str], file: tuple):
+@click.option("--mode", type=click.Choice(["idea", "all"]), default="idea", show_default=True)
+def commit_auto(message: Optional[str], file: tuple, mode: str):
     """Auto-generate commit from current changes"""
     repo = get_repo_or_exit()
 
@@ -324,8 +326,16 @@ def commit_auto(message: Optional[str], file: tuple):
         console.print("[yellow]No changes to commit[/yellow]")
         return
 
-    files_list = list(file) if file else None
-    success, msg = commit_changes(repo, message=message, files=files_list)
+    if mode == "idea":
+        if file:
+            raise click.UsageError("--file cannot be combined with --mode idea")
+        try:
+            success, msg = commit_active_changelist(repo, message=message)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+    else:
+        files_list = list(file) if file else None
+        success, msg = commit_changes(repo, message=message, files=files_list)
 
     if success:
         console.print(f"[green]✓[/green] Committed: {msg}")
@@ -336,19 +346,23 @@ def commit_auto(message: Optional[str], file: tuple):
 @commit.command("publish")
 @click.option("--message", "-m", help="Commit message (generated if omitted)")
 @click.option("--remote", "-r", default="origin", show_default=True, help="Remote containing this branch and its parent")
+@click.option("--mode", type=click.Choice(["idea", "all"]), default="idea", show_default=True)
 @click.option("--preview", is_flag=True, help="Show files for the new commit without changing the repository")
-def commit_publish(message: Optional[str], remote: str, preview: bool):
+def commit_publish(message: Optional[str], remote: str, mode: str, preview: bool):
     """Sync current branch, rebase onto its parent, commit and push."""
     repo = get_repo_or_exit()
-    pending = get_pending_files(repo)
-    console.print("[blue]Files for the new commit:[/blue]")
-    for item in pending:
+    try:
+        selection = get_publish_selection(repo, mode)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    console.print(f"[blue]Files for the new commit ({selection.description}):[/blue]")
+    for item in selection.display:
         console.print(f"  {item}")
-    if not pending:
+    if not selection.display:
         console.print("  (none; existing local commits may still be pushed)")
     if preview:
         return
-    result = publish_branch(repo, message=message, remote=remote)
+    result = publish_branch(repo, message=message, remote=remote, mode=mode)
     print_result(result.success, result.message)
     if not result.success:
         raise SystemExit(1)
