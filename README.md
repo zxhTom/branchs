@@ -152,7 +152,7 @@ branchs commit publish --preview  # 只查看新提交将包含的文件，不�
 
 新提交会包含当前仓库中所有已暂存、未暂存和未跟踪的文件。CLI 在执行前列出这些文件；GUI 的 **Commit** 页显示文件列表，点击 **Publish (Sync, Commit & Push)** 时再次确认。已经存在的本地提交也可能随推送一起上传，但不属于这个“新提交文件”列表。
 
-GUI 的 **Config** 页可将 **Git HTTP(S) connection** 改为 **Direct (no proxy)** 并保存。此设置仅影响 branchs 发起的 Git 网络命令，不修改 Windows 或 Git 的持久代理配置；SSH 身份验证错误仍需检查远端地址和凭据。
+branchs 发起的 Git 网络命令始终直连，不使用环境变量或 Git 配置中的 HTTP 代理，也不会修改 Windows 或 Git 的持久代理配置。
 
 ### 建议 commit message
 

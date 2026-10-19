@@ -342,16 +342,8 @@ class BranchManagerGUI:
             row=1, column=1, sticky=tk.W, padx=5
         )
 
-        ttk.Label(frame, text="Git HTTP(S) connection:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
-        self.network_mode_var = tk.StringVar(
-            value="Direct (no proxy)" if config.network_mode == "direct" else "Use system proxy"
-        )
-        ttk.Combobox(
-            frame, textvariable=self.network_mode_var,
-            values=("Use system proxy", "Direct (no proxy)"), state="readonly", width=24,
-        ).grid(row=2, column=1, sticky=tk.W, padx=5)
-        ttk.Label(frame, text="Choose Direct for internal HTTP(S) Git servers, then click Save.").grid(
-            row=3, column=0, columnspan=3, sticky=tk.W, padx=5
+        ttk.Label(frame, text="Git network: direct connection (no proxy)").grid(
+            row=2, column=0, columnspan=3, sticky=tk.W, padx=5, pady=5
         )
 
     def _refresh(self):
@@ -706,7 +698,6 @@ class BranchManagerGUI:
         config = load_config()
         config.default_branch = self.default_branch_var.get() or None
         config.default_merge_mode = self.config_mode_var.get()
-        config.network_mode = "direct" if self.network_mode_var.get() == "Direct (no proxy)" else "system"
         save_config(config)
         messagebox.showinfo("Done", "Configuration saved")
 

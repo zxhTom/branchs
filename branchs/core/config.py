@@ -61,7 +61,6 @@ class Config:
     default_diff_tool: Optional[str] = None
     branches: dict = field(default_factory=dict)
     remote: Optional[RemoteConfig] = None
-    network_mode: str = "system"
 
     def to_dict(self) -> dict:
         return {
@@ -70,7 +69,6 @@ class Config:
             "default_diff_tool": self.default_diff_tool,
             "branches": {k: v.to_dict() for k, v in self.branches.items()},
             "remote": self.remote.to_dict() if self.remote else None,
-            "network_mode": self.network_mode,
         }
 
     @classmethod
@@ -85,7 +83,6 @@ class Config:
             default_diff_tool=data.get("default_diff_tool"),
             branches=branches,
             remote=remote,
-            network_mode=data.get("network_mode", "system"),
         )
 
 

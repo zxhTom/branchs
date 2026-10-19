@@ -3,15 +3,9 @@
 import os
 from contextlib import contextmanager
 
-from branchs.core.config import load_config
-
-
 @contextmanager
 def git_network(repo):
-    if load_config().network_mode != "direct":
-        yield
-        return
-
+    """Run Git network commands without environment or configured HTTP proxies."""
     # Git's remote-specific proxy setting has higher priority than http.proxy.
     # Command-scope values override system/global/repository configuration.
     keys = ["http.proxy"] + [f"remote.{r.name}.proxy" for r in repo.remotes]

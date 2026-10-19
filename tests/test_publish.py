@@ -2,6 +2,8 @@ import pathlib
 import subprocess
 import tempfile
 import unittest
+from http.server import BaseHTTPRequestHandler, SimpleHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
 from unittest.mock import patch
 
 import git
@@ -9,7 +11,6 @@ import git
 from branchs.core.config import BranchConfig, BranchType
 from branchs.core.publish import publish_branch
 from branchs.core.publish import get_pending_files
-from branchs.core.config import Config
 from branchs.core.network import git_network
 
 
@@ -105,15 +106,61 @@ class PublishTests(unittest.TestCase):
 
         self.assertEqual(set(pending), {"A  staged", " M base", "?? untracked"})
 
-    def test_direct_mode_overrides_git_http_proxy_for_command_only(self):
+    def test_network_commands_override_git_http_proxy_without_changing_config(self):
         run(self.local, "config", "http.proxy", "http://proxy.invalid:8080")
         run(self.local, "config", "remote.origin.proxy", "http://remote-proxy.invalid:8080")
         repo = git.Repo(self.local)
-        with patch("branchs.core.network.load_config", return_value=Config(network_mode="direct")):
-            with git_network(repo):
-                self.assertEqual(repo.git.config("--get", "http.proxy"), "")
-                self.assertEqual(repo.git.config("--get", "remote.origin.proxy"), "")
+        with git_network(repo):
+            self.assertEqual(repo.git.config("--get", "http.proxy"), "")
+            self.assertEqual(repo.git.config("--get", "remote.origin.proxy"), "")
         self.assertEqual(repo.git.config("--get", "http.proxy"), "http://proxy.invalid:8080")
+
+    def test_http_remote_never_contacts_configured_proxy(self):
+        run(self.remote, "update-server-info")
+        root = self.remote.parent
+        proxy_requests = []
+
+        class Origin(SimpleHTTPRequestHandler):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, directory=str(root), **kwargs)
+
+            def log_message(self, *args):
+                pass
+
+        class Proxy(BaseHTTPRequestHandler):
+            def do_GET(self):
+                proxy_requests.append(self.path)
+                self.send_error(503)
+
+            def log_message(self, *args):
+                pass
+
+        origin = ThreadingHTTPServer(("127.0.0.1", 0), Origin)
+        proxy = ThreadingHTTPServer(("127.0.0.1", 0), Proxy)
+        threads = [Thread(target=server.serve_forever, daemon=True) for server in (origin, proxy)]
+        for thread in threads:
+            thread.start()
+        self.addCleanup(lambda: [server.server_close() for server in (origin, proxy)])
+        self.addCleanup(lambda: [thread.join() for thread in threads])
+        self.addCleanup(lambda: [server.shutdown() for server in (origin, proxy)])
+
+        url = f"http://127.0.0.1:{origin.server_port}/remote.git"
+        proxy_url = f"http://127.0.0.1:{proxy.server_port}"
+        repo = git.Repo(self.local)
+        repo.git.remote("set-url", "origin", url)
+        repo.git.config("http.proxy", proxy_url)
+        repo.git.config(f"http.{url}.proxy", proxy_url)
+        proxy_env = {name: proxy_url for name in (
+            "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"
+        )}
+        proxy_env.update(NO_PROXY="", no_proxy="")
+        with patch.dict("os.environ", proxy_env):
+            with self.assertRaises(git.GitCommandError):
+                repo.git.ls_remote("--heads", "origin")
+            self.assertEqual(len(proxy_requests), 1)
+            with git_network(repo):
+                self.assertIn("refs/heads/a", repo.git.ls_remote("--heads", "origin"))
+            self.assertEqual(len(proxy_requests), 1)
 
 
 if __name__ == "__main__":
