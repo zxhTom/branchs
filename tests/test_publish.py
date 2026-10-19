@@ -8,6 +8,9 @@ import git
 
 from branchs.core.config import BranchConfig, BranchType
 from branchs.core.publish import publish_branch
+from branchs.core.publish import get_pending_files
+from branchs.core.config import Config
+from branchs.core.network import git_network
 
 
 def run(cwd, *args):
@@ -91,6 +94,26 @@ class PublishTests(unittest.TestCase):
         self.assertTrue((self.local / "untracked").exists())
         self.assertEqual(run(self.local, "ls-remote", "origin", "refs/heads/a"), original_remote)
         self.assertEqual(run(self.local, "status", "--porcelain"), "?? untracked")
+
+    def test_preview_lists_staged_unstaged_and_untracked_files(self):
+        (self.local / "staged").write_text("new")
+        run(self.local, "add", "staged")
+        (self.local / "base").write_text("edited")
+        (self.local / "untracked").write_text("new")
+
+        pending = get_pending_files(git.Repo(self.local))
+
+        self.assertEqual(set(pending), {"A  staged", " M base", "?? untracked"})
+
+    def test_direct_mode_overrides_git_http_proxy_for_command_only(self):
+        run(self.local, "config", "http.proxy", "http://proxy.invalid:8080")
+        run(self.local, "config", "remote.origin.proxy", "http://remote-proxy.invalid:8080")
+        repo = git.Repo(self.local)
+        with patch("branchs.core.network.load_config", return_value=Config(network_mode="direct")):
+            with git_network(repo):
+                self.assertEqual(repo.git.config("--get", "http.proxy"), "")
+                self.assertEqual(repo.git.config("--get", "remote.origin.proxy"), "")
+        self.assertEqual(repo.git.config("--get", "http.proxy"), "http://proxy.invalid:8080")
 
 
 if __name__ == "__main__":

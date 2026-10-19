@@ -5,6 +5,7 @@ import git
 
 from branchs.core.branch import MergeReport, MergeResult, merge_branch
 from branchs.core.config import load_config
+from branchs.core.network import git_network
 from branchs.core.git import (
     checkout_branch,
     get_current_branch,
@@ -61,6 +62,11 @@ class SyncReport:
 
 
 def sync_remotes(repo: git.Repo, primary: str, secondary: str) -> SyncReport:
+    with git_network(repo):
+        return _sync_remotes(repo, primary, secondary)
+
+
+def _sync_remotes(repo: git.Repo, primary: str, secondary: str) -> SyncReport:
     config = load_config()
     if not config.remote:
         primary = primary or "origin"

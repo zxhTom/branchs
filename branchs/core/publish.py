@@ -8,6 +8,7 @@ import git
 from branchs.core.commit import commit_changes
 from branchs.core.config import get_branch_config
 from branchs.core.git import get_current_branch, has_uncommitted_changes, is_rebasing
+from branchs.core.network import git_network
 
 
 @dataclass
@@ -20,6 +21,11 @@ def _contains(repo: git.Repo, older: str) -> bool:
     return repo.git.merge_base(older, "HEAD").strip() == older
 
 
+def get_pending_files(repo: git.Repo) -> list[str]:
+    """Return the files that commit_changes will stage for a new commit."""
+    return repo.git.status("--porcelain=v1", "--untracked-files=all").splitlines()
+
+
 def publish_branch(
     repo: git.Repo,
     message: Optional[str] = None,
@@ -30,6 +36,11 @@ def publish_branch(
     A temporary stash keeps staged and untracked changes out of the rebases.
     On failure the stash is retained if it cannot be restored cleanly.
     """
+    with git_network(repo):
+        return _publish_branch(repo, message, remote)
+
+
+def _publish_branch(repo: git.Repo, message: Optional[str], remote: str) -> PublishResult:
     branch = get_current_branch(repo)
     config = get_branch_config(branch)
     if not config or not config.upstream:

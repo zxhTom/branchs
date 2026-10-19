@@ -42,7 +42,8 @@ from branchs.core.git import (
     is_rebasing,
 )
 from branchs.core.remote import sync_remotes
-from branchs.core.publish import publish_branch
+from branchs.core.publish import get_pending_files, publish_branch
+from branchs.core.network import git_network
 
 MODE_OPTIONS = ["abort", "keep"]
 BRANCH_TYPE_OPTIONS = [t.value for t in BranchType]
@@ -230,7 +231,16 @@ class BranchManagerGUI:
         ttk.Button(btn_frame, text="Suggest Message", command=self._suggest_commit_message).pack(side=tk.LEFT, padx=2)
         ttk.Button(btn_frame, text="Commit All", command=self._commit_all).pack(side=tk.LEFT, padx=2)
         ttk.Button(btn_frame, text="Publish (Sync, Commit & Push)", command=self._publish_current).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame, text="Refresh Files", command=self._refresh_pending_files).pack(side=tk.LEFT, padx=2)
         ttk.Button(btn_frame, text="Refresh History", command=self._refresh_commit_history).pack(side=tk.LEFT, padx=2)
+
+        self.commit_repo_var = tk.StringVar(value="No repository open")
+        ttk.Label(frame, textvariable=self.commit_repo_var).grid(row=2, column=0, columnspan=3, sticky=tk.W, padx=5)
+        ttk.Label(frame, text="Files for new commit (staged, unstaged and untracked):").grid(
+            row=3, column=0, columnspan=3, sticky=tk.W, padx=5
+        )
+        self.pending_files_text = scrolledtext.ScrolledText(frame, height=6, width=80, state="disabled")
+        self.pending_files_text.grid(row=4, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
 
         columns = ("hash", "author", "date", "message")
         self.commit_tree = ttk.Treeview(frame, columns=columns, show="headings", height=15)
@@ -247,11 +257,11 @@ class BranchManagerGUI:
         scrollbar = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=self.commit_tree.yview)
         self.commit_tree.configure(yscrollcommand=scrollbar.set)
 
-        self.commit_tree.grid(row=2, column=0, columnspan=3, sticky="nsew", padx=5, pady=5)
-        scrollbar.grid(row=2, column=3, sticky="ns")
+        self.commit_tree.grid(row=5, column=0, columnspan=3, sticky="nsew", padx=5, pady=5)
+        scrollbar.grid(row=5, column=3, sticky="ns")
 
         cp_frame = ttk.LabelFrame(frame, text="Cherry-pick")
-        cp_frame.grid(row=3, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
+        cp_frame.grid(row=6, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
 
         ttk.Label(cp_frame, text="Target:").pack(side=tk.LEFT, padx=2)
         self.cp_target_var = tk.StringVar()
@@ -261,7 +271,7 @@ class BranchManagerGUI:
         ttk.Button(cp_frame, text="Cherry-pick Selected", command=self._cherry_pick_selected).pack(side=tk.LEFT, padx=5)
         ttk.Button(cp_frame, text="Revert Selected", command=self._revert_selected).pack(side=tk.LEFT, padx=5)
 
-        frame.grid_rowconfigure(2, weight=1)
+        frame.grid_rowconfigure(5, weight=1)
         frame.grid_columnconfigure(1, weight=1)
 
     def _create_remote_tab(self):
@@ -332,11 +342,24 @@ class BranchManagerGUI:
             row=1, column=1, sticky=tk.W, padx=5
         )
 
+        ttk.Label(frame, text="Git HTTP(S) connection:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
+        self.network_mode_var = tk.StringVar(
+            value="Direct (no proxy)" if config.network_mode == "direct" else "Use system proxy"
+        )
+        ttk.Combobox(
+            frame, textvariable=self.network_mode_var,
+            values=("Use system proxy", "Direct (no proxy)"), state="readonly", width=24,
+        ).grid(row=2, column=1, sticky=tk.W, padx=5)
+        ttk.Label(frame, text="Choose Direct for internal HTTP(S) Git servers, then click Save.").grid(
+            row=3, column=0, columnspan=3, sticky=tk.W, padx=5
+        )
+
     def _refresh(self):
         if self.repo:
             self._refresh_branch_list()
             self._refresh_remote_list()
             self._refresh_commit_history()
+            self._refresh_pending_files()
             self._refresh_dropdowns()
 
     def _refresh_branch_list(self):
@@ -414,7 +437,13 @@ class BranchManagerGUI:
 
     def _fetch_all(self):
         if self.repo:
-            fetch_all(self.repo)
+            try:
+                with git_network(self.repo):
+                    for remote in self.repo.remotes:
+                        remote.fetch()
+            except git.GitCommandError as exc:
+                messagebox.showerror("Fetch failed", str(exc))
+                return
             self._refresh_branch_list()
             messagebox.showinfo("Done", "Fetched all remotes")
 
@@ -549,6 +578,16 @@ class BranchManagerGUI:
             msg = generate_commit_message(self.repo)
             self.commit_msg_var.set(msg)
 
+    def _refresh_pending_files(self):
+        if not self.repo:
+            return
+        self.commit_repo_var.set(f"Repository: {self.repo.working_tree_dir}    Branch: {get_current_branch(self.repo)}")
+        files = get_pending_files(self.repo)
+        self.pending_files_text.configure(state="normal")
+        self.pending_files_text.delete("1.0", tk.END)
+        self.pending_files_text.insert(tk.END, "\n".join(files) if files else "No uncommitted files")
+        self.pending_files_text.configure(state="disabled")
+
     def _commit_all(self):
         if not self.repo:
             return
@@ -569,8 +608,19 @@ class BranchManagerGUI:
         if not self.repo:
             messagebox.showerror("Error", "Not a git repository")
             return
+        pending = get_pending_files(self.repo)
+        summary = "\n".join(pending[:12]) or "No new commit; existing local commits may still be pushed."
+        if len(pending) > 12:
+            summary += f"\n... and {len(pending) - 12} more (see file list in Commit tab)"
+        if not messagebox.askyesno(
+            "Confirm publish",
+            f"Repository: {self.repo.working_tree_dir}\nBranch: {get_current_branch(self.repo)}\n\n"
+            f"Files for the new commit:\n{summary}\n\nSync, rebase, commit and push?",
+        ):
+            return
         message = self.commit_msg_var.get() or None
         result = publish_branch(self.repo, message=message)
+        self._refresh_pending_files()
         if result.success:
             self.commit_msg_var.set("")
             self._refresh_commit_history()
@@ -644,7 +694,11 @@ class BranchManagerGUI:
         self.remote_output.insert(tk.END, "\nSyncing... Please wait...\n")
         self.remote_output.update()
 
-        report = sync_remotes(self.repo, primary, secondary)
+        try:
+            report = sync_remotes(self.repo, primary, secondary)
+        except git.GitCommandError as exc:
+            messagebox.showerror("Sync failed", str(exc))
+            return
         self.remote_output.insert(tk.END, report.summary())
 
 
@@ -652,6 +706,7 @@ class BranchManagerGUI:
         config = load_config()
         config.default_branch = self.default_branch_var.get() or None
         config.default_merge_mode = self.config_mode_var.get()
+        config.network_mode = "direct" if self.network_mode_var.get() == "Direct (no proxy)" else "system"
         save_config(config)
         messagebox.showinfo("Done", "Configuration saved")
 
