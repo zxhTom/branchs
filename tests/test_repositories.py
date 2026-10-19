@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import git
 
-from branchs.core.config import load_config, remember_repo
+from branchs.core.config import load_config, remember_repo, set_gui_theme
 from branchs.core.repositories import open_repository, startup_repository
 
 
@@ -51,6 +51,16 @@ class RepositorySelectionTests(unittest.TestCase):
         self.assertEqual(open_repository(str(nested)).working_tree_dir, str(self.first))
         with self.assertRaises(ValueError):
             open_repository(str(self.root / "config"))
+
+    def test_gui_theme_persists_without_losing_recent_repositories(self):
+        remember_repo(str(self.first))
+        set_gui_theme("dark")
+
+        config = load_config()
+        self.assertEqual(config.gui_theme, "dark")
+        self.assertEqual(config.last_repo, str(self.first))
+        with self.assertRaises(ValueError):
+            set_gui_theme("unknown")
 
 
 if __name__ == "__main__":

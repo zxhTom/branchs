@@ -63,6 +63,7 @@ class Config:
     remote: Optional[RemoteConfig] = None
     last_repo: Optional[str] = None
     recent_repos: list = field(default_factory=list)
+    gui_theme: str = "light"
 
     def to_dict(self) -> dict:
         return {
@@ -73,6 +74,7 @@ class Config:
             "remote": self.remote.to_dict() if self.remote else None,
             "last_repo": self.last_repo,
             "recent_repos": self.recent_repos,
+            "gui_theme": self.gui_theme,
         }
 
     @classmethod
@@ -89,6 +91,7 @@ class Config:
             remote=remote,
             last_repo=data.get("last_repo"),
             recent_repos=data.get("recent_repos", []),
+            gui_theme=data.get("gui_theme", "light") if data.get("gui_theme") in ("light", "dark") else "light",
         )
 
 
@@ -114,6 +117,14 @@ def remember_repo(path: str, limit: int = 10) -> None:
         item for item in config.recent_repos
         if os.path.normcase(os.path.normpath(item)) != os.path.normcase(normalized)
     ][:limit - 1]
+    save_config(config)
+
+
+def set_gui_theme(theme: str) -> None:
+    if theme not in ("light", "dark"):
+        raise ValueError("GUI theme must be 'light' or 'dark'")
+    config = load_config()
+    config.gui_theme = theme
     save_config(config)
 
 

@@ -30,6 +30,7 @@ from branchs.core.config import (
     set_remote_config,
     BranchConfig,
     remember_repo,
+    set_gui_theme,
 )
 from branchs.core.git import (
     get_current_branch,
@@ -48,6 +49,7 @@ from branchs.core.idea import commit_active_changelist
 from branchs.core.network import git_network
 from branchs.core.repositories import open_repository, startup_repository
 from branchs.core.messages import COMMIT_TYPES, build_commit_message
+from branchs.gui_theme import palette
 
 MODE_OPTIONS = ["abort", "keep"]
 BRANCH_TYPE_OPTIONS = [t.value for t in BranchType]
@@ -59,6 +61,7 @@ class BranchManagerGUI:
         self.root.title("Branchs - Branch Manager")
         self.root.geometry("1120x820")
         self.root.minsize(900, 650)
+        self.theme = load_config().gui_theme
         self._setup_style()
         self._publish_busy = False
 
@@ -69,84 +72,179 @@ class BranchManagerGUI:
 
         self._create_menu()
         self._create_main_view()
+        self._apply_theme()
         if self.repo:
             remember_repo(self.repo.working_tree_dir)
         self._refresh()
 
     def _setup_style(self):
-        self.root.configure(background="#f4f6fa")
+        p = palette(self.theme)
+        self.root.configure(background=p["window"])
         style = ttk.Style(self.root)
-        style.theme_use("clam")
-        style.configure(".", font=("Segoe UI", 10), background="#ffffff", foreground="#172033")
-        style.configure("TFrame", background="#ffffff")
-        style.configure("TLabel", background="#ffffff", foreground="#172033")
-        style.configure("Muted.TLabel", foreground="#697586")
-        style.configure("Section.TLabel", foreground="#172033", font=("Segoe UI", 12, "bold"))
-        style.configure("TLabelFrame", background="#ffffff", bordercolor="#dfe4ed", relief="solid")
-        style.configure("TLabelFrame.Label", background="#ffffff", foreground="#172033", font=("Segoe UI", 10, "bold"))
-        style.configure("TCheckbutton", background="#ffffff", foreground="#344054")
-        style.configure("TButton", padding=(12, 8), borderwidth=1, bordercolor="#d8e0eb", background="#ffffff", foreground="#24334a")
-        style.map("TButton", background=[("active", "#eef3fa"), ("disabled", "#f6f7f9")])
-        style.configure("Accent.TButton", padding=(14, 9), borderwidth=0, background="#295ee6", foreground="#ffffff", font=("Segoe UI", 10, "bold"))
-        style.map("Accent.TButton", background=[("active", "#1e4ac1"), ("disabled", "#b4c4ea")])
-        style.configure("Compact.TButton", padding=(7, 4), borderwidth=0, background="#f0f4fa", foreground="#45556d")
-        style.map("Compact.TButton", background=[("active", "#e2eaf5")])
-        style.configure("TEntry", padding=7, fieldbackground="#ffffff", bordercolor="#cbd5e1", lightcolor="#cbd5e1", darkcolor="#cbd5e1")
-        style.configure("TCombobox", padding=7, fieldbackground="#ffffff", bordercolor="#cbd5e1", lightcolor="#cbd5e1", darkcolor="#cbd5e1")
-        style.map("TCombobox", fieldbackground=[("readonly", "#ffffff")], selectbackground=[("readonly", "#ffffff")],
-                  selectforeground=[("readonly", "#172033")])
-        style.configure("Flat.TNotebook", background="#ffffff", borderwidth=0)
+        if style.theme_use() != "clam":
+            style.theme_use("clam")
+        style.configure(".", font=("Segoe UI", 10), background=p["surface"], foreground=p["text"])
+        style.configure("TFrame", background=p["surface"])
+        style.configure("TLabel", background=p["surface"], foreground=p["text"])
+        style.configure("Muted.TLabel", background=p["surface"], foreground=p["muted"])
+        style.configure("Section.TLabel", background=p["surface"], foreground=p["text"], font=("Segoe UI", 12, "bold"))
+        style.configure("Accent.TLabel", background=p["surface"], foreground=p["modified"])
+        style.configure("TLabelFrame", background=p["surface"], bordercolor=p["border"], relief="solid")
+        style.configure("TLabelFrame.Label", background=p["surface"], foreground=p["text"], font=("Segoe UI", 10, "bold"))
+        style.configure("TCheckbutton", background=p["surface"], foreground=p["text"])
+        style.map("TCheckbutton", background=[("active", p["surface"])], foreground=[("disabled", p["muted"])])
+        style.configure("TButton", padding=(12, 8), borderwidth=1, bordercolor=p["border"],
+                        background=p["button"], foreground=p["button_text"])
+        style.map("TButton", background=[("active", p["button_hover"]), ("disabled", p["button"])],
+                  foreground=[("disabled", p["muted"])])
+        style.configure("Accent.TButton", padding=(14, 9), borderwidth=0, background=p["accent"],
+                        foreground=p["accent_text"], font=("Segoe UI", 10, "bold"))
+        style.map("Accent.TButton", background=[("active", p["accent_hover"]), ("disabled", p["button"])],
+                  foreground=[("disabled", p["muted"])])
+        style.configure("Compact.TButton", padding=(7, 4), borderwidth=0,
+                        background=p["button"], foreground=p["button_text"])
+        style.map("Compact.TButton", background=[("active", p["button_hover"])])
+        style.configure("Header.TButton", padding=(10, 7), borderwidth=0,
+                        background=p["button"], foreground=p["button_text"])
+        style.map("Header.TButton", background=[("active", p["button_hover"])])
+        for name in ("TEntry", "TCombobox"):
+            style.configure(name, padding=7, fieldbackground=p["input"], foreground=p["text"],
+                            bordercolor=p["border"], lightcolor=p["border"], darkcolor=p["border"],
+                            insertcolor=p["text"], arrowcolor=p["text"])
+            style.map(name, fieldbackground=[("readonly", p["input"]), ("disabled", p["button"])],
+                      foreground=[("readonly", p["text"]), ("disabled", p["muted"])],
+                      selectbackground=[("readonly", p["input"])], selectforeground=[("readonly", p["text"])])
+        style.configure("Flat.TNotebook", background=p["surface"], borderwidth=0,
+                        bordercolor=p["border"], lightcolor=p["border"], darkcolor=p["border"])
         style.layout("Flat.TNotebook.Tab", [])
-        style.configure("Treeview", background="#ffffff", fieldbackground="#ffffff", foreground="#24334a", rowheight=32, borderwidth=0)
-        style.configure("Treeview.Heading", background="#f4f6fa", foreground="#64748b", font=("Segoe UI", 9, "bold"), padding=(9, 8), relief="flat")
-        style.map("Treeview", background=[("selected", "#eaf1ff")], foreground=[("selected", "#1742a6")])
-        style.configure("Horizontal.TProgressbar", background="#295ee6", troughcolor="#e5eaf2", borderwidth=0)
+        style.configure("Treeview", background=p["tree"], fieldbackground=p["tree"],
+                        foreground=p["text"], rowheight=32, borderwidth=0,
+                        bordercolor=p["border"], lightcolor=p["border"], darkcolor=p["border"])
+        style.configure("Treeview.Heading", background=p["heading"], foreground=p["muted"],
+                        font=("Segoe UI", 9, "bold"), padding=(9, 8), relief="flat")
+        style.map("Treeview", background=[("selected", p["selected"])],
+                  foreground=[("selected", p["selected_text"])])
+        style.map("Treeview.Heading", background=[("active", p["button_hover"])])
+        style.configure("TScrollbar", background=p["button"], troughcolor=p["surface"],
+                        arrowcolor=p["muted"], bordercolor=p["border"], lightcolor=p["button"], darkcolor=p["button"])
+        style.map("TScrollbar", background=[("active", p["button_hover"])])
+        style.configure("TSeparator", background=p["border"])
+        style.configure("Horizontal.TProgressbar", background=p["accent"], troughcolor=p["heading"], borderwidth=0)
+        self.root.option_add("*TCombobox*Listbox.background", p["input"])
+        self.root.option_add("*TCombobox*Listbox.foreground", p["text"])
+        self.root.option_add("*TCombobox*Listbox.selectBackground", p["selected"])
+        self.root.option_add("*TCombobox*Listbox.selectForeground", p["selected_text"])
 
     def _style_text_outputs(self):
+        p = palette(self.theme)
         for widget in (self.merge_output, self.rebase_output, self.remote_output):
-            widget.configure(font=("Consolas", 10), background="#ffffff", foreground="#243148",
-                             insertbackground="#243148", relief="flat", padx=12, pady=10)
+            widget.configure(font=("Consolas", 10), background=p["input"], foreground=p["text"],
+                             insertbackground=p["text"], selectbackground=p["selected"],
+                             selectforeground=p["selected_text"], relief="flat", padx=12, pady=10,
+                             borderwidth=0, highlightthickness=1, highlightbackground=p["border"],
+                             highlightcolor=p["accent"])
+            widget.vbar.configure(background=p["button"], troughcolor=p["surface"],
+                                  activebackground=p["button_hover"])
+
+    def _apply_theme(self):
+        self._setup_style()
+        p = palette(self.theme)
+        self.header.configure(background=p["header"])
+        self.header_brand.configure(background=p["header"], foreground=p["text"])
+        self.header_caption.configure(background=p["header"], foreground=p["muted"])
+        self.nav.configure(background=p["surface"], highlightbackground=p["border"])
+        self.theme_button.configure(text="Dark mode" if self.theme == "light" else "Light mode")
+        self.theme_var.set("Light" if self.theme == "light" else "Dark")
+        self._update_nav()
+        self._style_text_outputs()
+        self.commit_body_text.configure(background=p["input"], foreground=p["text"],
+                                        insertbackground=p["text"], selectbackground=p["selected"],
+                                        selectforeground=p["selected_text"], highlightbackground=p["border"],
+                                        highlightcolor=p["accent"], highlightthickness=1, borderwidth=0)
+        for tag in ("added", "deleted", "modified"):
+            self.pending_files_tree.tag_configure(tag, foreground=p[tag])
+        for menu in (self.app_menu, self.recent_repo_menu):
+            menu.configure(background=p["surface"], foreground=p["text"],
+                           activebackground=p["selected"], activeforeground=p["selected_text"])
+        self._style_combo_popdowns(p)
+
+    def _style_combo_popdowns(self, p):
+        def visit(widget):
+            if isinstance(widget, ttk.Combobox):
+                try:
+                    popdown = widget.tk.call("ttk::combobox::PopdownWindow", str(widget))
+                    widget.tk.call(f"{popdown}.f.l", "configure", "-background", p["input"],
+                                   "-foreground", p["text"], "-selectbackground", p["selected"],
+                                   "-selectforeground", p["selected_text"])
+                except tk.TclError:
+                    pass
+            for child in widget.winfo_children():
+                visit(child)
+        visit(self.root)
+
+    def _set_theme(self, theme):
+        if theme == self.theme:
+            return
+        set_gui_theme(theme)
+        self.theme = theme
+        self._apply_theme()
+
+    def _toggle_theme(self):
+        self._set_theme("dark" if self.theme == "light" else "light")
+
+    def _on_theme_selected(self, _event):
+        self._set_theme("dark" if self.theme_var.get() == "Dark" else "light")
 
     def _create_menu(self):
-        menubar = tk.Menu(self.root)
+        self.app_menu = tk.Menu(self.root, tearoff=0)
+        self.app_menu.add_command(label="Open repository", command=self._open_repo)
+        self.recent_repo_menu = tk.Menu(self.app_menu, tearoff=0)
+        self.app_menu.add_cascade(label="Recent repositories", menu=self.recent_repo_menu)
+        self.app_menu.add_command(label="Refresh", command=self._refresh)
+        self.app_menu.add_separator()
+        self.app_menu.add_command(label="About", command=lambda: messagebox.showinfo("About", "Branchs v0.1.0"))
+        self.app_menu.add_command(label="Exit", command=self.root.quit)
 
-        file_menu = tk.Menu(menubar, tearoff=0)
-        file_menu.add_command(label="Open Repo", command=self._open_repo)
-        self.recent_repo_menu = tk.Menu(file_menu, tearoff=0)
-        file_menu.add_cascade(label="Recent Repos", menu=self.recent_repo_menu)
-        file_menu.add_command(label="Refresh", command=self._refresh)
-        file_menu.add_separator()
-        file_menu.add_command(label="Exit", command=self.root.quit)
-        menubar.add_cascade(label="File", menu=file_menu)
-
-        help_menu = tk.Menu(menubar, tearoff=0)
-        help_menu.add_command(label="About", command=lambda: messagebox.showinfo("About", "Branchs v0.1.0"))
-        menubar.add_cascade(label="Help", menu=help_menu)
-
-        self.root.config(menu=menubar)
+    def _show_app_menu(self):
+        x = self.menu_button.winfo_rootx()
+        y = self.menu_button.winfo_rooty() + self.menu_button.winfo_height()
+        try:
+            self.app_menu.tk_popup(x, y)
+        finally:
+            self.app_menu.grab_release()
 
     def _create_main_view(self):
-        header = tk.Frame(self.root, background="#172033", height=78)
-        header.pack(fill=tk.X)
-        header.pack_propagate(False)
-        tk.Label(header, text="branchs", background="#172033", foreground="#ffffff",
-                 font=("Segoe UI", 18, "bold")).pack(side=tk.LEFT, padx=(24, 28))
-        tk.Label(header, text="REPOSITORY", background="#172033", foreground="#a9b8ce",
-                 font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 10))
+        p = palette(self.theme)
+        self.header = tk.Frame(self.root, background=p["header"], height=78)
+        self.header.pack(fill=tk.X)
+        self.header.pack_propagate(False)
+        self.header_brand = tk.Label(self.header, text="branchs", background=p["header"], foreground=p["text"],
+                                     font=("Segoe UI", 18, "bold"))
+        self.header_brand.pack(side=tk.LEFT, padx=(24, 28))
+        self.header_caption = tk.Label(self.header, text="REPOSITORY", background=p["header"], foreground=p["muted"],
+                                       font=("Segoe UI", 9, "bold"))
+        self.header_caption.pack(side=tk.LEFT, padx=(0, 10))
         self.repo_path_var = tk.StringVar()
-        self.repo_combo = ttk.Combobox(header, textvariable=self.repo_path_var, state="readonly")
+        self.repo_combo = ttk.Combobox(self.header, textvariable=self.repo_path_var, state="readonly")
         self.repo_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.repo_combo.bind("<<ComboboxSelected>>", self._on_recent_repo_selected)
-        ttk.Button(header, text="Open repository", command=self._open_repo).pack(side=tk.LEFT, padx=(10, 24))
+        ttk.Button(self.header, text="Open", command=self._open_repo,
+                   style="Header.TButton").pack(side=tk.LEFT, padx=(10, 6))
+        self.theme_button = ttk.Button(self.header, command=self._toggle_theme, style="Header.TButton")
+        self.theme_button.pack(side=tk.LEFT, padx=(0, 6))
+        self.menu_button = ttk.Button(self.header, text="Menu", command=self._show_app_menu,
+                                      style="Header.TButton")
+        self.menu_button.pack(side=tk.LEFT, padx=(0, 24))
 
-        nav = tk.Frame(self.root, background="#ffffff", height=52, highlightbackground="#dfe4ed", highlightthickness=1)
-        nav.pack(fill=tk.X)
-        nav.pack_propagate(False)
+        self.nav = tk.Frame(self.root, background=p["surface"], height=52,
+                            highlightbackground=p["border"], highlightthickness=1)
+        self.nav.pack(fill=tk.X)
+        self.nav.pack_propagate(False)
         self._nav_buttons = []
         for index, label in enumerate(("Branches", "Merge", "Rebase", "Commit", "Remote Sync", "Settings")):
-            button = tk.Button(nav, text=label, command=lambda i=index: self.notebook.select(i),
-                               background="#ffffff", foreground="#59677c", activebackground="#ffffff",
-                               activeforeground="#295ee6", relief="flat", borderwidth=0,
+            button = tk.Button(self.nav, text=label, command=lambda i=index: self.notebook.select(i),
+                               background=p["surface"], foreground=p["muted"], activebackground=p["selected"],
+                               activeforeground=p["selected_text"], relief="flat", borderwidth=0,
                                highlightthickness=0, font=("Segoe UI", 10), padx=17, pady=12, cursor="hand2")
             button.pack(side=tk.LEFT, padx=(9 if index == 0 else 0, 0))
             self._nav_buttons.append(button)
@@ -165,11 +263,13 @@ class BranchManagerGUI:
         self._update_nav()
 
     def _update_nav(self, _event=None):
+        p = palette(self.theme)
         active = self.notebook.index(self.notebook.select())
         for index, button in enumerate(self._nav_buttons):
             selected = index == active
-            button.configure(foreground="#295ee6" if selected else "#59677c",
-                             background="#eef3ff" if selected else "#ffffff",
+            button.configure(foreground=p["selected_text"] if selected else p["muted"],
+                             background=p["selected"] if selected else p["surface"],
+                             activebackground=p["selected"], activeforeground=p["selected_text"],
                              font=("Segoe UI", 10, "bold" if selected else "normal"))
 
     def _create_branch_tab(self):
@@ -322,6 +422,7 @@ class BranchManagerGUI:
         return left, right
 
     def _create_commit_tab(self):
+        p = palette(self.theme)
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="Commit")
         page.columnconfigure(0, weight=2, uniform="commit_panes")
@@ -370,9 +471,9 @@ class BranchManagerGUI:
         pending_scroll = ttk.Scrollbar(files_area, orient=tk.VERTICAL, command=self.pending_files_tree.yview)
         pending_scroll.grid(row=0, column=1, sticky="ns")
         self.pending_files_tree.configure(yscrollcommand=pending_scroll.set)
-        self.pending_files_tree.tag_configure("added", foreground="#15803d")
-        self.pending_files_tree.tag_configure("deleted", foreground="#c24140")
-        self.pending_files_tree.tag_configure("modified", foreground="#295ee6")
+        self.pending_files_tree.tag_configure("added", foreground=p["added"])
+        self.pending_files_tree.tag_configure("deleted", foreground=p["deleted"])
+        self.pending_files_tree.tag_configure("modified", foreground=p["modified"])
         ttk.Label(left, text="Only files already staged in Git can be committed.", style="Muted.TLabel").grid(
             row=3, column=0, sticky="w", pady=(6, 8))
         ttk.Separator(left).grid(row=4, column=0, sticky="ew", pady=(0, 9))
@@ -400,13 +501,13 @@ class BranchManagerGUI:
         ttk.Label(fields, text="Description  ·  optional").grid(
             row=4, column=0, columnspan=2, sticky="w", pady=(7, 3))
         self.commit_body_text = tk.Text(fields, height=2, wrap="word", font=("Segoe UI", 10),
-                                        background="#ffffff", foreground="#172033", relief="solid",
-                                        borderwidth=1, highlightthickness=0, padx=8, pady=6)
+                                        background=p["input"], foreground=p["text"], relief="flat",
+                                        borderwidth=0, highlightthickness=1, padx=8, pady=6)
         self.commit_body_text.grid(row=5, column=0, columnspan=2, sticky="ew")
         ttk.Checkbutton(fields, text="Breaking change", variable=self.commit_breaking_var).grid(
             row=6, column=0, columnspan=2, sticky="w", pady=(5, 2))
         self.commit_preview_var = tk.StringVar()
-        ttk.Label(fields, textvariable=self.commit_preview_var, foreground="#295ee6",
+        ttk.Label(fields, textvariable=self.commit_preview_var, style="Accent.TLabel",
                   wraplength=370).grid(row=7, column=0, columnspan=2, sticky="w", pady=(0, 5))
         for variable in (self.commit_type_var, self.commit_scope_var, self.commit_summary_var, self.commit_breaking_var):
             variable.trace_add("write", lambda *_: self._update_commit_preview())
@@ -536,6 +637,14 @@ class BranchManagerGUI:
         ttk.Label(frame, text="Git network: direct connection (no proxy)").grid(
             row=4, column=0, columnspan=3, sticky=tk.W, padx=5, pady=5
         )
+        ttk.Label(frame, text="Appearance:").grid(row=5, column=0, sticky=tk.W, padx=5, pady=(20, 5))
+        self.theme_var = tk.StringVar(value="Light" if self.theme == "light" else "Dark")
+        theme_combo = ttk.Combobox(frame, textvariable=self.theme_var, values=("Light", "Dark"),
+                                   state="readonly", width=26)
+        theme_combo.grid(row=5, column=1, sticky=tk.W, padx=5, pady=(20, 5))
+        theme_combo.bind("<<ComboboxSelected>>", self._on_theme_selected)
+        ttk.Label(frame, text="Changes apply immediately and are remembered for next launch.",
+                  style="Muted.TLabel").grid(row=6, column=1, columnspan=2, sticky=tk.W, padx=5)
 
     def _refresh(self):
         self._refresh_repo_selector()
@@ -901,9 +1010,12 @@ class BranchManagerGUI:
         self.publish_button.configure(state="disabled")
         dialog = tk.Toplevel(self.root)
         dialog.title("Publishing branch")
-        dialog.geometry("540x190")
+        self.root.update_idletasks()
+        x = self.root.winfo_rootx() + max(0, (self.root.winfo_width() - 540) // 2)
+        y = self.root.winfo_rooty() + max(0, (self.root.winfo_height() - 190) // 2)
+        dialog.geometry(f"540x190+{x}+{y}")
         dialog.resizable(False, False)
-        dialog.configure(background="#ffffff")
+        dialog.configure(background=palette(self.theme)["surface"])
         dialog.transient(self.root)
         dialog.protocol("WM_DELETE_WINDOW", lambda: None)
         ttk.Label(dialog, text="Publishing branch", font=("Segoe UI", 16, "bold")).pack(anchor="w", padx=24, pady=(22, 8))
@@ -913,7 +1025,7 @@ class BranchManagerGUI:
         progress.pack(fill="x", padx=24)
         progress.start(12)
         ttk.Label(dialog, text="Network steps may take some time. Current step is shown above.",
-                  foreground="#64748b").pack(anchor="w", padx=24, pady=14)
+                  style="Muted.TLabel").pack(anchor="w", padx=24, pady=14)
         dialog.grab_set()
         events = queue.Queue()
         repo = self.repo

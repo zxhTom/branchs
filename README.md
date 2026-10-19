@@ -241,7 +241,9 @@ branchs config set-mode keep   # 冲突保留现状
 branchs-gui
 ```
 
-GUI 会记住上次打开的仓库，下次启动时自动打开。窗口顶部的 **Repository** 下拉框或 **File → Recent Repos** 可切换最近使用的仓库；点击 **Open Repo...** 可添加其他仓库。已不存在的路径会自动跳过。最近仓库最多保存 10 个，记录保存在 `~/.config/branchs/config.json`。
+GUI 会记住上次打开的仓库，下次启动时自动打开。窗口顶部的 **Repository** 下拉框或 **Menu → Recent repositories** 可切换最近使用的仓库；点击 **Open** 可添加其他仓库。已不存在的路径会自动跳过。最近仓库最多保存 10 个，记录保存在 `~/.config/branchs/config.json`。
+
+GUI 提供 **Light** 和 **Dark** 两种主题。点击窗口顶部的主题按钮即可立即切换，也可在 **Settings → Appearance** 选择；下次启动会沿用上次选择。
 
 在 **Commit** 页，先选择提交类型（如 `fix`、`feat`、`chore`），填写摘要，可选填影响范围、详细说明和不兼容变更标记。提交信息按 [Conventional Commits 1.0.0](https://www.conventionalcommits.org/zh-hans/v1.0.0/) 生成，例如 `fix(gui): 修复内网连接`。下方表格列出当前模式将提交的已暂存文件。**Publish** 执行时会弹出进度窗口，显示正在查询远端、获取分支、变基、提交或推送的步骤。
 
