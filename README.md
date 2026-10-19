@@ -152,7 +152,7 @@ branchs commit publish --mode add -m "feat: 更新 a"  # 显式提交所有已�
 
 `publish` 会抓取 `origin/a` 和 `origin/b`，先将本地 `a` 的提交接在最新的 `origin/a` 后面，再将 `a` 变基到 `origin/b`。工作区的未提交改动会临时保存，变基完成后恢复、提交并推送。若变基改写了已推送的提交，使用带明确期望值的 `--force-with-lease`；若远端有新的并发提交，推送会失败，保留本地提交。可用 `-r` 指定其他 remote。
 
-所有提交模式都只使用 Git 暂存区中已有的改动。branchs 不运行 `git add`，未暂存的文件或同一文件的未暂存代码片段不会进入新提交。默认 `idea` 模式在 GUI 中列出 IntelliJ IDEA 当前 changelist 的已跟踪改动，标明 **STAGED** 或 **ADD FIRST**；只有 STAGED 的内容可提交。如果暂存区含有其他 changelist 的文件，就停止并提示先自行取消暂存。程序从 `.idea/workspace.xml` 读取当前 changelist；找不到项目或列表时会停止，不会扩大提交范围。IDEA 使用 Git staging area 而不使用 changelist 时，请改用 **Add 模式**。**Unversioned Files** 不属于当前 changelist。同一文件跨多个 changelist 时也会停止，请在 IDEA 内完成这类分块提交。`--mode all` 仍可作为 Add 模式的旧别名。已经存在的本地提交也可能随推送一起上传，不属于这个“新提交文件”列表。
+所有提交模式默认只使用 Git 暂存区中已有的改动。GUI 的 IDEA 模式会列出 IntelliJ IDEA 当前 changelist 的已跟踪改动，标明 **STAGED** 或 **ADD FIRST**。点击 Commit 或 Publish 时，若有 ADD FIRST 文件，会逐一列出并询问：选 Yes 才会对这些文件执行 `git add`，选 No 只提交原本 STAGED 的内容，选 Cancel 停止。CLI 与 Add 模式不会自动暂存。若同一文件已有部分暂存内容，未暂存的代码片段不会被自动加入。如果暂存区含有其他 changelist 的文件，就停止并提示先自行取消暂存。程序从 `.idea/workspace.xml` 读取当前 changelist；找不到项目或列表时会停止，不会扩大提交范围。IDEA 使用 Git staging area 而不使用 changelist 时，请改用 **Add 模式**。**Unversioned Files** 不属于当前 changelist。同一文件跨多个 changelist 时也会停止，请在 IDEA 内完成这类分块提交。`--mode all` 仍可作为 Add 模式的旧别名。已经存在的本地提交也可能随推送一起上传，不属于这个“新提交文件”列表。
 
 branchs 发起的 Git 网络命令始终直连，不使用环境变量或 Git 配置中的 HTTP 代理，也不会修改 Windows 或 Git 的持久代理配置。
 
@@ -247,7 +247,7 @@ GUI 提供 **Light** 和 **Dark** 两种主题。点击窗口顶部的主题按�
 
 在 **Commit** 页，先选择提交类型（如 `fix`、`feat`、`chore`），填写摘要，可选填影响范围、详细说明和不兼容变更标记。提交信息按 [Conventional Commits 1.0.0](https://www.conventionalcommits.org/zh-hans/v1.0.0/) 生成，例如 `fix(gui): 修复内网连接`。左侧 Changes 表格显示当前模式的文件及暂存状态。**Publish** 执行时会弹出进度窗口，显示正在查询远端、获取分支、变基、提交或推送的步骤。
 
-Scope 可以从下拉建议中选择，也可自行输入。选中右侧历史记录中的一个或多个提交后，点击 **Reference selected**，会在 Description 中插入完整提交 ID，格式为 `@commit <hash>`。
+Scope 可以从下拉建议中选择，也可自行输入。在 Description 中输入 `@` 会弹出最近提交列表，可点击或用方向键与回车选择；也可以双击右侧 History 的提交，或右键选择 **Reference in Description**。引用格式为 `@commit <完整提交 ID>`。
 
 **Cherry-pick** 的 Target 表示接收所选提交的本地目标分支。成功后 GUI 会切回原分支；目标分支不会自动推送。
 

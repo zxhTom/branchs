@@ -13,7 +13,7 @@ from branchs.core.publish import publish_branch
 from branchs.core.publish import get_publish_selection
 from branchs.core.commit import commit_changes
 from branchs.core.network import git_network
-from branchs.core.idea import commit_active_changelist, get_active_changelist
+from branchs.core.idea import commit_active_changelist, get_active_changelist, stage_idea_changes
 
 
 def run(cwd, *args):
@@ -229,6 +229,35 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(selected.visible_paths, ["base"])
         self.assertEqual(selected.paths, [])
         self.assertEqual(run(self.local, "diff", "--cached", "--name-only"), "")
+
+    def test_confirmed_idea_staging_only_adds_requested_changelist_file(self):
+        self.write_idea_changelists(["base"], ["a1"])
+        (self.local / "base").write_text("ready after explicit confirmation")
+        (self.local / "a1").write_text("not selected")
+        (self.local / "untracked").write_text("not tracked")
+        repo = git.Repo(self.local)
+
+        stage_idea_changes(repo, ["base"])
+
+        self.assertEqual(run(self.local, "diff", "--cached", "--name-only"), "base")
+        self.assertEqual(get_publish_selection(repo, "idea").paths, ["base"])
+        with self.assertRaisesRegex(ValueError, "changed since confirmation"):
+            stage_idea_changes(repo, ["a1"])
+
+    def test_confirmed_idea_changes_publish_after_staging(self):
+        self.write_idea_changelists(["base"])
+        (self.local / "base").write_text("edited in IDEA")
+        repo = git.Repo(self.local)
+        self.assertEqual(get_active_changelist(repo).visible_paths, ["base"])
+        self.assertEqual(get_publish_selection(repo, "idea").paths, [])
+
+        stage_idea_changes(repo, ["base"])
+        result = publish_branch(repo, message="fix(core): publish IDEA changes", mode="idea")
+
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(run(self.local, "show", "--pretty=format:", "--name-only", "HEAD"), "base")
+        self.assertEqual(run(self.local, "rev-parse", "HEAD"),
+                         run(self.local, "ls-remote", "origin", "refs/heads/a").split()[0])
 
     def test_idea_mode_reads_windows_style_project_paths(self):
         self.write_idea_changelists([])

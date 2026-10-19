@@ -1,4 +1,5 @@
 import queue
+import re
 import threading
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
@@ -45,7 +46,7 @@ from branchs.core.git import (
 )
 from branchs.core.remote import sync_remotes
 from branchs.core.publish import get_publish_selection, publish_branch
-from branchs.core.idea import commit_active_changelist, get_active_changelist
+from branchs.core.idea import commit_active_changelist, get_active_changelist, stage_idea_changes
 from branchs.core.network import git_network
 from branchs.core.repositories import open_repository, startup_repository
 from branchs.core.messages import COMMIT_TYPES, build_commit_message, suggest_scopes
@@ -64,6 +65,7 @@ class BranchManagerGUI:
         self.theme = load_config().gui_theme
         self._setup_style()
         self._publish_busy = False
+        self._reference_popup = None
 
         self._branch_combos = []
         self._remote_combos = []
@@ -514,6 +516,9 @@ class BranchManagerGUI:
         for variable in (self.commit_type_var, self.commit_scope_var, self.commit_summary_var, self.commit_breaking_var):
             variable.trace_add("write", lambda *_: self._update_commit_preview())
         self.commit_body_text.bind("<KeyRelease>", lambda _event: self._update_commit_preview())
+        self.commit_body_text.bind("<KeyRelease>", self._on_description_keyrelease, add="+")
+        self.commit_body_text.bind("<Down>", self._focus_reference_popup, add="+")
+        self.commit_body_text.bind("<Escape>", self._hide_reference_popup, add="+")
         self._update_commit_preview()
 
         actions = ttk.Frame(left)
@@ -551,6 +556,8 @@ class BranchManagerGUI:
         history_scroll = ttk.Scrollbar(history_area, orient=tk.VERTICAL, command=self.commit_tree.yview)
         history_scroll.grid(row=0, column=1, sticky="ns")
         self.commit_tree.configure(yscrollcommand=history_scroll.set)
+        self.commit_tree.bind("<Double-Button-1>", self._reference_history_double_click)
+        self.commit_tree.bind("<Button-3>", self._show_history_context_menu)
 
         ttk.Separator(right).grid(row=3, column=0, sticky="ew", pady=16)
         ttk.Label(right, text="Cherry-pick", style="Section.TLabel").grid(row=4, column=0, sticky="w", pady=(0, 5))
@@ -781,6 +788,7 @@ class BranchManagerGUI:
         if not selected:
             messagebox.showinfo("Select a commit", "Select one or more commits in History first")
             return
+        self._hide_reference_popup()
         body = self.commit_body_text.get("1.0", "end-1c")
         existing = set(body.splitlines())
         references = [f"@commit {commit_id}" for commit_id in selected
@@ -789,6 +797,100 @@ class BranchManagerGUI:
             separator = "\n" if body and not body.endswith("\n") else ""
             self.commit_body_text.insert(tk.END, separator + "\n".join(references))
             self.commit_body_text.focus_set()
+
+    def _reference_history_double_click(self, event):
+        commit_id = self.commit_tree.identify_row(event.y)
+        if commit_id:
+            self._insert_commit_reference(commit_id)
+
+    def _show_history_context_menu(self, event):
+        commit_id = self.commit_tree.identify_row(event.y)
+        if not commit_id:
+            return
+        self.commit_tree.selection_set(commit_id)
+        menu = tk.Menu(self.commit_tree, tearoff=0)
+        p = palette(self.theme)
+        menu.configure(background=p["surface"], foreground=p["text"],
+                       activebackground=p["selected"], activeforeground=p["selected_text"])
+        menu.add_command(label="Reference in Description", command=lambda: self._insert_commit_reference(commit_id))
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _insert_commit_reference(self, commit_id, replace_match=False):
+        self._hide_reference_popup()
+        body = self.commit_body_text
+        reference = f"@commit {commit_id}"
+        if replace_match:
+            before = body.get("1.0", "insert")
+            match = re.search(r"@([^\s@]*)$", before)
+            if match:
+                body.delete(f"insert-{len(match.group(0))}c", "insert")
+        elif body.get("1.0", "end-1c") and body.compare("insert", "==", "end-1c"):
+            if not body.get("end-2c", "end-1c") == "\n":
+                body.insert("insert", "\n")
+        body.insert("insert", reference)
+        body.focus_set()
+
+    def _on_description_keyrelease(self, _event):
+        before = self.commit_body_text.get("1.0", "insert")
+        match = re.search(r"@([^\s@]*)$", before)
+        if not match or not self.repo:
+            self._hide_reference_popup()
+            return
+        query = match.group(1).casefold()
+        if query == "commit":
+            query = ""
+        commits = get_commit_history(self.repo, max_count=50)
+        matches = [c for c in commits if query in c.hash.casefold() or query in c.message.casefold()]
+        if not matches:
+            self._hide_reference_popup()
+            return
+        self._hide_reference_popup()
+        p = palette(self.theme)
+        popup = tk.Toplevel(self.root)
+        popup.overrideredirect(True)
+        popup.configure(background=p["border"])
+        popup.geometry(
+            f"{max(360, self.commit_body_text.winfo_width())}x{min(8, len(matches)) * 27 + 8}"
+            f"+{self.commit_body_text.winfo_rootx()}"
+            f"+{self.commit_body_text.winfo_rooty() + self.commit_body_text.winfo_height()}"
+        )
+        choices = tk.Listbox(popup, background=p["input"], foreground=p["text"],
+                             selectbackground=p["selected"], selectforeground=p["selected_text"],
+                             font=("Segoe UI", 10), relief="flat", borderwidth=1,
+                             highlightthickness=0, activestyle="none")
+        choices.pack(fill="both", expand=True, padx=1, pady=1)
+        self._reference_popup = popup
+        self._reference_choices = choices
+        self._reference_hashes = [c.hash for c in matches[:8]]
+        for commit in matches[:8]:
+            choices.insert(tk.END, f"{commit.hash[:10]}  {commit.message}")
+        choices.bind("<ButtonRelease-1>", self._choose_reference_popup)
+        choices.bind("<Return>", self._choose_reference_popup)
+        choices.bind("<Escape>", self._hide_reference_popup)
+        popup.lift()
+
+    def _focus_reference_popup(self, _event):
+        if not self._reference_popup:
+            return None
+        self._reference_choices.selection_clear(0, tk.END)
+        self._reference_choices.selection_set(0)
+        self._reference_choices.focus_set()
+        return "break"
+
+    def _choose_reference_popup(self, _event):
+        selected = self._reference_choices.curselection()
+        if selected:
+            self._insert_commit_reference(self._reference_hashes[selected[0]], replace_match=True)
+        return "break"
+
+    def _hide_reference_popup(self, _event=None):
+        if self._reference_popup:
+            self._reference_popup.destroy()
+            self._reference_popup = None
+        return "break" if _event and getattr(_event, "keysym", None) == "Escape" else None
 
 
     def _fetch_all(self):
@@ -1004,20 +1106,48 @@ class BranchManagerGUI:
     def _commit_mode(self):
         return "idea" if self.commit_mode_var.get() == "IDEA current changelist" else "add"
 
+    def _prepare_idea_selection(self):
+        selection = get_publish_selection(self.repo, "idea")
+        changelist = get_active_changelist(self.repo)
+        unstaged = sorted(set(changelist.visible_paths) - set(changelist.paths))
+        if unstaged:
+            listed = "\n".join(unstaged[:12])
+            if len(unstaged) > 12:
+                listed += f"\n... and {len(unstaged) - 12} more"
+            answer = messagebox.askyesnocancel(
+                "IDEA changes need staging",
+                f"These IDEA Changes are not staged:\n{listed}\n\n"
+                "Yes: stage exactly these files, then continue.\n"
+                "No: continue with STAGED files only.\nCancel: stop.",
+            )
+            if answer is None:
+                return None
+            if answer:
+                stage_idea_changes(self.repo, unstaged)
+                selection = get_publish_selection(self.repo, "idea")
+                self._refresh_pending_files()
+        if not selection.paths and changelist.visible_paths:
+            messagebox.showinfo("Nothing staged", "No IDEA Changes are staged. Confirm staging to continue.")
+            return None
+        return selection
+
     def _commit_all(self):
         if not self.repo:
             return
-        if not get_staged_paths(self.repo):
-            messagebox.showinfo("Info", "No staged changes to commit; add files in IDEA or Git first")
-            return
-
         try:
             msg = self._commit_message()
+            if self._commit_mode() == "idea":
+                selection = self._prepare_idea_selection()
+                if selection is None:
+                    return
+            elif not get_staged_paths(self.repo):
+                messagebox.showinfo("Info", "No staged changes to commit; add files in IDEA or Git first")
+                return
             if self._commit_mode() == "idea":
                 success, result = commit_active_changelist(self.repo, message=msg)
             else:
                 success, result = commit_changes(self.repo, message=msg)
-        except ValueError as exc:
+        except (ValueError, git.GitCommandError) as exc:
             messagebox.showerror("Commit failed", str(exc))
             return
         self._refresh_pending_files()
@@ -1036,9 +1166,16 @@ class BranchManagerGUI:
             return
         mode = self._commit_mode()
         try:
-            selection = get_publish_selection(self.repo, mode)
-            message = self._commit_message() if selection.paths else None
-        except ValueError as exc:
+            if mode == "idea":
+                changes = get_active_changelist(self.repo)
+                message = self._commit_message() if changes.visible_paths else None
+                selection = self._prepare_idea_selection()
+            else:
+                selection = get_publish_selection(self.repo, mode)
+                message = self._commit_message() if selection.paths else None
+            if selection is None:
+                return
+        except (ValueError, git.GitCommandError) as exc:
             messagebox.showerror("Publish failed", str(exc))
             return
         summary = "\n".join(selection.display[:12]) or "No new commit; existing local commits may still be pushed."

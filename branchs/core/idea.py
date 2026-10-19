@@ -99,6 +99,16 @@ def get_active_changelist(repo: git.Repo) -> IdeaSelection:
     return IdeaSelection(active.get("name", "Changes"), ready, visible)
 
 
+def stage_idea_changes(repo: git.Repo, paths: list[str]) -> None:
+    """Stage only explicitly confirmed, tracked files in the active changelist."""
+    selection = get_active_changelist(repo)
+    requested = set(paths)
+    eligible = set(selection.visible_paths) - set(selection.paths)
+    if not requested or not requested <= eligible:
+        raise ValueError("IDEA changes changed since confirmation; refresh and select the files again")
+    repo.git.add("--", *sorted(requested))
+
+
 def commit_active_changelist(repo: git.Repo, message: Optional[str] = None, paths: Optional[list[str]] = None) -> tuple:
     selection = get_active_changelist(repo) if paths is None else None
     selected_paths = selection.paths if selection else paths
