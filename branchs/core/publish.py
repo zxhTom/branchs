@@ -30,10 +30,10 @@ def _contains(repo: git.Repo, older: str) -> bool:
 
 
 def get_publish_selection(repo: git.Repo, mode: str = "idea") -> PublishSelection:
-    if mode == "all":
+    if mode in ("add", "all"):
         paths = get_staged_paths(repo)
         display = repo.git.diff("--cached", "--name-status", "--no-renames").splitlines()
-        return PublishSelection("all staged changes", display, paths)
+        return PublishSelection("Git staged changes (Add mode)", display, paths)
     if mode != "idea":
         raise ValueError(f"Unknown publish mode: {mode}")
     changelist = get_active_changelist(repo)
@@ -152,7 +152,7 @@ def _publish_branch(repo: git.Repo, message: Optional[str], remote: str, mode: s
         success, result = commit_active_changelist(repo, message=message, paths=selection.paths)
         if not success:
             return PublishResult(False, f"Commit failed: {result}")
-    elif mode == "all" and selection.paths:
+    elif mode in ("add", "all") and selection.paths:
         step("提交已暂存文件")
         success, result = commit_changes(repo, message=message)
         if not success:

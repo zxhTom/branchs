@@ -317,7 +317,7 @@ def commit():
 @commit.command("auto")
 @click.option("--message", "-m", help="Custom commit message")
 @click.option("--file", "-f", multiple=True, help="Require exactly these files to be staged; does not add files")
-@click.option("--mode", type=click.Choice(["idea", "all"]), default="idea", show_default=True)
+@click.option("--mode", type=click.Choice(["idea", "add", "all"]), default="idea", show_default=True)
 def commit_auto(message: Optional[str], file: tuple, mode: str):
     """Commit already staged changes without adding files"""
     repo = get_repo_or_exit()
@@ -346,7 +346,7 @@ def commit_auto(message: Optional[str], file: tuple, mode: str):
 @commit.command("publish")
 @click.option("--message", "-m", help="Commit message (generated if omitted)")
 @click.option("--remote", "-r", default="origin", show_default=True, help="Remote containing this branch and its parent")
-@click.option("--mode", type=click.Choice(["idea", "all"]), default="idea", show_default=True)
+@click.option("--mode", type=click.Choice(["idea", "add", "all"]), default="idea", show_default=True)
 @click.option("--preview", is_flag=True, help="Show files for the new commit without changing the repository")
 def commit_publish(message: Optional[str], remote: str, mode: str, preview: bool):
     """Sync current branch, rebase onto its parent, commit and push."""

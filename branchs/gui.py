@@ -45,10 +45,10 @@ from branchs.core.git import (
 )
 from branchs.core.remote import sync_remotes
 from branchs.core.publish import get_publish_selection, publish_branch
-from branchs.core.idea import commit_active_changelist
+from branchs.core.idea import commit_active_changelist, get_active_changelist
 from branchs.core.network import git_network
 from branchs.core.repositories import open_repository, startup_repository
-from branchs.core.messages import COMMIT_TYPES, build_commit_message
+from branchs.core.messages import COMMIT_TYPES, build_commit_message, suggest_scopes
 from branchs.gui_theme import palette
 
 MODE_OPTIONS = ["abort", "keep"]
@@ -451,7 +451,7 @@ class BranchManagerGUI:
         self.commit_mode_var = tk.StringVar(value="IDEA current changelist")
         mode_combo = ttk.Combobox(
             mode_row, textvariable=self.commit_mode_var,
-            values=("IDEA current changelist", "All staged changes"), state="readonly", width=24,
+            values=("IDEA current changelist", "Add mode · Git staged"), state="readonly", width=24,
         )
         mode_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
         mode_combo.bind("<<ComboboxSelected>>", lambda _event: self._refresh_pending_files())
@@ -474,7 +474,8 @@ class BranchManagerGUI:
         self.pending_files_tree.tag_configure("added", foreground=p["added"])
         self.pending_files_tree.tag_configure("deleted", foreground=p["deleted"])
         self.pending_files_tree.tag_configure("modified", foreground=p["modified"])
-        ttk.Label(left, text="Only files already staged in Git can be committed.", style="Muted.TLabel").grid(
+        self.pending_hint_var = tk.StringVar(value="Only files already staged in Git can be committed.")
+        ttk.Label(left, textvariable=self.pending_hint_var, style="Muted.TLabel", wraplength=390).grid(
             row=3, column=0, sticky="w", pady=(6, 8))
         ttk.Separator(left).grid(row=4, column=0, sticky="ew", pady=(0, 9))
 
@@ -495,7 +496,8 @@ class BranchManagerGUI:
         ttk.Label(fields, text="Scope  ·  optional").grid(row=0, column=1, sticky="w", padx=(10, 0), pady=(0, 4))
         ttk.Combobox(fields, textvariable=self.commit_type_var, values=list(COMMIT_TYPES),
                      state="readonly").grid(row=1, column=0, sticky="ew")
-        ttk.Entry(fields, textvariable=self.commit_scope_var).grid(row=1, column=1, sticky="ew", padx=(10, 0))
+        self.commit_scope_combo = ttk.Combobox(fields, textvariable=self.commit_scope_var)
+        self.commit_scope_combo.grid(row=1, column=1, sticky="ew", padx=(10, 0))
         ttk.Label(fields, text="Summary").grid(row=2, column=0, columnspan=2, sticky="w", pady=(7, 3))
         ttk.Entry(fields, textvariable=self.commit_summary_var).grid(row=3, column=0, columnspan=2, sticky="ew")
         ttk.Label(fields, text="Description  ·  optional").grid(
@@ -528,6 +530,8 @@ class BranchManagerGUI:
         history_header.grid(row=0, column=0, sticky="ew", pady=(0, 6))
         ttk.Label(history_header, text="History", style="Section.TLabel").pack(side=tk.LEFT)
         ttk.Button(history_header, text="Refresh", command=self._refresh_commit_history).pack(side=tk.RIGHT)
+        ttk.Button(history_header, text="Reference selected", command=self._reference_selected_commits,
+                   style="Compact.TButton").pack(side=tk.RIGHT, padx=(0, 8))
         self.commit_repo_var = tk.StringVar(value="No repository open")
         ttk.Label(right, textvariable=self.commit_repo_var, style="Muted.TLabel",
                   wraplength=600).grid(row=1, column=0, sticky="w", pady=(0, 12))
@@ -768,8 +772,23 @@ class BranchManagerGUI:
         commits = get_commit_history(self.repo, max_count=50)
         for c in commits:
             self.commit_tree.insert(
-                "", tk.END, values=(c.hash[:8], c.author, c.date.strftime("%Y-%m-%d"), c.message[:60])
+                "", tk.END, iid=c.hash,
+                values=(c.hash[:8], c.author, c.date.strftime("%Y-%m-%d"), c.message[:60])
             )
+
+    def _reference_selected_commits(self):
+        selected = self.commit_tree.selection()
+        if not selected:
+            messagebox.showinfo("Select a commit", "Select one or more commits in History first")
+            return
+        body = self.commit_body_text.get("1.0", "end-1c")
+        existing = set(body.splitlines())
+        references = [f"@commit {commit_id}" for commit_id in selected
+                      if f"@commit {commit_id}" not in existing]
+        if references:
+            separator = "\n" if body and not body.endswith("\n") else ""
+            self.commit_body_text.insert(tk.END, separator + "\n".join(references))
+            self.commit_body_text.focus_set()
 
 
     def _fetch_all(self):
@@ -938,24 +957,52 @@ class BranchManagerGUI:
         if not self.repo:
             return
         self.commit_repo_var.set(f"Repository: {self.repo.working_tree_dir}    Branch: {get_current_branch(self.repo)}")
+        self.commit_scope_combo["values"] = suggest_scopes(self.repo)
         for item in self.pending_files_tree.get_children():
             self.pending_files_tree.delete(item)
         try:
-            selection = get_publish_selection(self.repo, self._commit_mode())
-            self.pending_status_var.set(f"{selection.description}  ·  {len(selection.display)} file(s)")
-            for line in selection.display:
-                code, _, path = line.partition("\t")
-                label, tag = ({"A": ("ADDED", "added"), "D": ("DELETED", "deleted")}
-                              .get(code[:1], ("MODIFIED", "modified")))
-                self.pending_files_tree.insert("", tk.END, values=(label, path or code), tags=(tag,))
-            if not selection.display:
-                self.pending_files_tree.insert("", tk.END, values=("—", "No staged files in selected mode"))
+            if self._commit_mode() == "idea":
+                selection = get_active_changelist(self.repo)
+                ready = set(selection.paths)
+                self.pending_files_tree.heading("path", text="IDEA CHANGE")
+                self.pending_status_var.set(
+                    f"{selection.name} · {len(selection.visible_paths)} file(s) · {len(ready)} staged"
+                )
+                for path in selection.visible_paths:
+                    is_staged = path in ready
+                    self.pending_files_tree.insert("", tk.END,
+                                                   values=("STAGED" if is_staged else "ADD FIRST", path),
+                                                   tags=("added" if is_staged else "deleted",))
+                if not selection.visible_paths:
+                    self.pending_files_tree.insert("", tk.END, values=("—", "No tracked changes in active IDEA changelist"))
+                outside = sorted(set(get_staged_paths(self.repo)) - ready)
+                if outside:
+                    self.pending_hint_var.set(
+                        "Staged files outside this changelist block IDEA mode; unstage them or use Add mode."
+                    )
+                else:
+                    self.pending_hint_var.set(
+                        "IDEA Changes may be unstaged. Only rows marked STAGED can enter the commit."
+                    )
+            else:
+                selection = get_publish_selection(self.repo, "add")
+                self.pending_files_tree.heading("path", text="STAGED FILE")
+                self.pending_status_var.set(f"Git index · {len(selection.display)} file(s)")
+                self.pending_hint_var.set("Add mode commits exactly the existing Git index; no git add is run.")
+                for line in selection.display:
+                    code, _, path = line.partition("\t")
+                    label, tag = ({"A": ("ADDED", "added"), "D": ("DELETED", "deleted")}
+                                  .get(code[:1], ("MODIFIED", "modified")))
+                    self.pending_files_tree.insert("", tk.END, values=(label, path or code), tags=(tag,))
+                if not selection.display:
+                    self.pending_files_tree.insert("", tk.END, values=("—", "No files staged in Git"))
         except ValueError as exc:
             self.pending_status_var.set("Selection needs attention")
+            self.pending_hint_var.set("Switch to Add mode to use files already staged in Git.")
             self.pending_files_tree.insert("", tk.END, values=("NOTICE", str(exc)))
 
     def _commit_mode(self):
-        return "idea" if self.commit_mode_var.get() == "IDEA current changelist" else "all"
+        return "idea" if self.commit_mode_var.get() == "IDEA current changelist" else "add"
 
     def _commit_all(self):
         if not self.repo:

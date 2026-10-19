@@ -205,6 +205,7 @@ class PublishTests(unittest.TestCase):
         success, message = commit_active_changelist(git.Repo(self.local), "selected commit")
 
         self.assertEqual(selected.paths, ["base"])
+        self.assertEqual(selected.visible_paths, ["base"])
         self.assertTrue(success, message)
         self.assertEqual(run(self.local, "show", "--pretty=format:", "--name-only", "HEAD"), "base")
         self.assertIn(" M a1", subprocess.run(
@@ -217,6 +218,56 @@ class PublishTests(unittest.TestCase):
         (self.local / "base").write_text("changed")
         with self.assertRaisesRegex(ValueError, "splits these files"):
             get_active_changelist(git.Repo(self.local))
+
+    def test_idea_mode_displays_unstaged_tracked_changes(self):
+        self.write_idea_changelists(["base", "untracked"])
+        (self.local / "base").write_text("edited, not staged")
+        (self.local / "untracked").write_text("not tracked")
+
+        selected = get_active_changelist(git.Repo(self.local))
+
+        self.assertEqual(selected.visible_paths, ["base"])
+        self.assertEqual(selected.paths, [])
+        self.assertEqual(run(self.local, "diff", "--cached", "--name-only"), "")
+
+    def test_idea_mode_reads_windows_style_project_paths(self):
+        self.write_idea_changelists([])
+        workspace = self.local / ".idea" / "workspace.xml"
+        workspace.write_text(
+            '<project><component name="ChangeListManager">'
+            '<list name="Changes" default="true">'
+            '<change beforePath="$PROJECT_DIR$\\base" afterPath="$PROJECT_DIR$\\base" />'
+            '</list></component></project>'
+        )
+        (self.local / "base").write_text("modified")
+
+        self.assertEqual(get_active_changelist(git.Repo(self.local)).visible_paths, ["base"])
+
+    def test_idea_project_in_child_directory_is_found(self):
+        child = self.local / "module"
+        child.mkdir()
+        idea = child / ".idea"
+        idea.mkdir()
+        (idea / "workspace.xml").write_text(
+            '<project><component name="ChangeListManager">'
+            '<list name="Changes" default="true">'
+            '<change beforePath="$PROJECT_DIR$/../base" afterPath="$PROJECT_DIR$/../base" />'
+            '</list></component></project>'
+        )
+        (self.local / "base").write_text("modified")
+
+        self.assertEqual(get_active_changelist(git.Repo(self.local)).visible_paths, ["base"])
+
+    def test_add_mode_uses_only_git_index(self):
+        self.write_idea_changelists(["a1"])
+        (self.local / "base").write_text("staged")
+        run(self.local, "add", "base")
+        (self.local / "a1").write_text("unstaged")
+
+        selected = get_publish_selection(git.Repo(self.local), mode="add")
+
+        self.assertEqual(selected.paths, ["base"])
+        self.assertEqual(selected.display, ["M\tbase"])
 
     def test_idea_mode_does_not_fall_back_to_all_changes_without_idea_data(self):
         (self.local / "base").write_text("changed")

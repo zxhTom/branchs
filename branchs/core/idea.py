@@ -1,5 +1,6 @@
 """Read the active IntelliJ IDEA changelist for a Git repository."""
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -14,6 +15,7 @@ from branchs.core.commit import get_staged_paths
 class IdeaSelection:
     name: str
     paths: list[str]
+    visible_paths: list[str]
 
 
 def _project_dir(repo: git.Repo) -> Path:
@@ -21,10 +23,16 @@ def _project_dir(repo: git.Repo) -> Path:
     for directory in (root, *root.parents):
         if (directory / ".idea" / "workspace.xml").is_file():
             return directory
-    raise ValueError("IDEA project not found: open this repository in IntelliJ IDEA first")
+    children = [path.parent.parent for path in root.glob("*/.idea/workspace.xml")]
+    if len(children) == 1:
+        return children[0]
+    if len(children) > 1:
+        raise ValueError("Multiple IDEA projects found inside this repository; open the matching repository or use Add mode")
+    raise ValueError("IDEA project not found: open this repository in IntelliJ IDEA or use Add mode")
 
 
 def _relative_path(value: str, project: Path, repo_root: Path) -> Optional[str]:
+    value = value.replace("\\", "/")
     prefix = "$PROJECT_DIR$"
     if value == prefix:
         return None
@@ -77,14 +85,18 @@ def get_active_changelist(repo: git.Repo) -> IdeaSelection:
             + ", ".join(sorted(overlap))
         )
 
-    # IDEA's Unversioned Files are not part of a changelist. Require every
-    # selected path to be known to Git so a rename cannot become a deletion.
-    unversioned = [path for path in sorted(selected) if not repo.git.ls_files("--cached", "--", path)]
-    if unversioned:
-        raise ValueError("Add these IDEA files to Git first: " + ", ".join(unversioned))
-
-    changed = sorted(selected & set(get_staged_paths(repo)))
-    return IdeaSelection(active.get("name", "Changes"), changed)
+    staged = set(get_staged_paths(repo))
+    unstaged = set(filter(None, repo.git.diff("--name-only", "--no-renames", "-z").split("\0")))
+    # Changes may contain modified files that are not staged. Show them in the
+    # GUI but keep the commit selection limited to the existing Git index.
+    # Unversioned Files do not appear in either Git diff.
+    changed = staged | unstaged
+    key = (lambda path: path.casefold()) if os.name == "nt" else (lambda path: path)
+    matching = {key(path): path for path in changed}
+    visible = sorted({matching[key(path)] for path in selected if key(path) in matching})
+    staged_keys = {key(path) for path in staged}
+    ready = [path for path in visible if key(path) in staged_keys]
+    return IdeaSelection(active.get("name", "Changes"), ready, visible)
 
 
 def commit_active_changelist(repo: git.Repo, message: Optional[str] = None, paths: Optional[list[str]] = None) -> tuple:

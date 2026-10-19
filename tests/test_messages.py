@@ -1,6 +1,6 @@
 import unittest
 
-from branchs.core.messages import build_commit_message
+from branchs.core.messages import build_commit_message, suggest_scopes
 
 
 class CommitMessageTests(unittest.TestCase):
@@ -19,6 +19,17 @@ class CommitMessageTests(unittest.TestCase):
     def test_requires_summary(self):
         with self.assertRaises(ValueError):
             build_commit_message("通用维护 · chore", "  ")
+
+    def test_scope_suggestions_include_repository_history(self):
+        class Commit:
+            message = "fix(network): repair proxy"
+
+        from unittest.mock import patch
+        with patch("branchs.core.commit.get_staged_paths", return_value=["branchs/gui.py"]), \
+             patch("branchs.core.commit.get_commit_history", return_value=[Commit()]):
+            scopes = suggest_scopes(object())
+        self.assertIn("gui", scopes)
+        self.assertIn("network", scopes)
 
 
 if __name__ == "__main__":
