@@ -57,6 +57,7 @@ from branchs.core.git import (
     is_rebasing,
 )
 from branchs.core.remote import sync_remotes
+from branchs.core.publish import publish_branch
 
 console = Console()
 
@@ -330,6 +331,17 @@ def commit_auto(message: Optional[str], file: tuple):
         console.print(f"[green]✓[/green] Committed: {msg}")
     else:
         console.print(f"[red]✗[/red] {msg}")
+
+
+@commit.command("publish")
+@click.option("--message", "-m", help="Commit message (generated if omitted)")
+@click.option("--remote", "-r", default="origin", show_default=True, help="Remote containing this branch and its parent")
+def commit_publish(message: Optional[str], remote: str):
+    """Sync current branch, rebase onto its parent, commit and push."""
+    result = publish_branch(get_repo_or_exit(), message=message, remote=remote)
+    print_result(result.success, result.message)
+    if not result.success:
+        raise SystemExit(1)
 
 
 @commit.command("suggest")

@@ -42,6 +42,7 @@ from branchs.core.git import (
     is_rebasing,
 )
 from branchs.core.remote import sync_remotes
+from branchs.core.publish import publish_branch
 
 MODE_OPTIONS = ["abort", "keep"]
 BRANCH_TYPE_OPTIONS = [t.value for t in BranchType]
@@ -228,6 +229,7 @@ class BranchManagerGUI:
 
         ttk.Button(btn_frame, text="Suggest Message", command=self._suggest_commit_message).pack(side=tk.LEFT, padx=2)
         ttk.Button(btn_frame, text="Commit All", command=self._commit_all).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame, text="Publish (Sync, Commit & Push)", command=self._publish_current).pack(side=tk.LEFT, padx=2)
         ttk.Button(btn_frame, text="Refresh History", command=self._refresh_commit_history).pack(side=tk.LEFT, padx=2)
 
         columns = ("hash", "author", "date", "message")
@@ -562,6 +564,19 @@ class BranchManagerGUI:
             messagebox.showinfo("Done", f"Committed: {result}")
         else:
             messagebox.showerror("Error", result)
+
+    def _publish_current(self):
+        if not self.repo:
+            messagebox.showerror("Error", "Not a git repository")
+            return
+        message = self.commit_msg_var.get() or None
+        result = publish_branch(self.repo, message=message)
+        if result.success:
+            self.commit_msg_var.set("")
+            self._refresh_commit_history()
+            messagebox.showinfo("Done", result.message)
+        else:
+            messagebox.showerror("Publish failed", result.message)
 
     def _cherry_pick_selected(self):
         sel = self.commit_tree.selection()

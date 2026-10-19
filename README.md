@@ -138,6 +138,19 @@ branchs commit auto -m "feat: 添加登录功能"
 branchs commit auto -f src/login.py -f tests/test_login.py
 ```
 
+### 同步父分支后提交并推送
+
+先给当前分支配置父分支。例如，`a` 从 `b` 切出：
+
+```bash
+branchs branch set-type a feature --upstream b
+branchs commit publish -m "feat: 更新 a"
+```
+
+`publish` 会抓取 `origin/a` 和 `origin/b`，先将本地 `a` 的提交接在最新的 `origin/a` 后面，再将 `a` 变基到 `origin/b`。工作区的未提交改动会临时保存，变基完成后恢复、提交并推送。若变基改写了已推送的提交，使用带明确期望值的 `--force-with-lease`；若远端有新的并发提交，推送会失败，保留本地提交。可用 `-r` 指定其他 remote。
+
+GUI 的 **Commit** 页提供 **Publish (Sync, Commit & Push)** 按钮，执行同一流程（使用 `origin`）。
+
 ### 建议 commit message
 
 ```bash
