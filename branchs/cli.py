@@ -511,6 +511,8 @@ def remote_sync(primary: Optional[str], secondary: Optional[str]):
     repo = get_repo_or_exit()
     report = sync_remotes(repo, primary, secondary)
     console.print(report.summary())
+    if report.failed:
+        raise SystemExit(1)
 
 
 # ── config commands ──────────────────────────────────────────────

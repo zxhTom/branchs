@@ -578,7 +578,7 @@ class BranchManagerGUI:
         self.notebook.add(page, text="Remote Sync")
         left, right = self._operation_columns(page)
         ttk.Label(left, text="Remote sync", style="Section.TLabel").pack(anchor="w", pady=(0, 6))
-        ttk.Label(left, text="Review remotes and choose where to synchronize branches.",
+        ttk.Label(left, text="Each Primary branch is pushed to the same branch on Secondary. Failed branches do not stop the rest.",
                   style="Muted.TLabel", wraplength=350).pack(anchor="w", pady=(0, 16))
         remote_header = ttk.Frame(left)
         remote_header.pack(fill=tk.X, pady=(0, 8))
@@ -599,12 +599,12 @@ class BranchManagerGUI:
         self.remote_tree.configure(yscrollcommand=remote_scroll.set)
         ttk.Separator(left).pack(fill=tk.X, pady=(0, 16))
         ttk.Label(left, text="Sync settings", style="Section.TLabel").pack(anchor="w", pady=(0, 14))
-        ttk.Label(left, text="Primary remote").pack(anchor="w", pady=(0, 5))
+        ttk.Label(left, text="Primary remote · source").pack(anchor="w", pady=(0, 5))
         self.primary_remote_var = tk.StringVar(value="origin")
         self.primary_remote_combo = ttk.Combobox(left, textvariable=self.primary_remote_var)
         self.primary_remote_combo.pack(fill=tk.X, pady=(0, 14))
         self._remote_combos.append(self.primary_remote_combo)
-        ttk.Label(left, text="Secondary remote").pack(anchor="w", pady=(0, 5))
+        ttk.Label(left, text="Secondary remote · destination").pack(anchor="w", pady=(0, 5))
         self.secondary_remote_var = tk.StringVar(value="upstream")
         self.secondary_remote_combo = ttk.Combobox(left, textvariable=self.secondary_remote_var)
         self.secondary_remote_combo.pack(fill=tk.X, pady=(0, 16))
@@ -1319,7 +1319,8 @@ class BranchManagerGUI:
             messagebox.showwarning("Warning", "Both primary and secondary remotes are required")
             return
 
-        self.remote_output.insert(tk.END, "\nSyncing... Please wait...\n")
+        self.remote_output.delete("1.0", tk.END)
+        self.remote_output.insert(tk.END, f"Syncing branches  {primary} → {secondary} ...\n")
         self.remote_output.update()
 
         try:
@@ -1327,6 +1328,7 @@ class BranchManagerGUI:
         except git.GitCommandError as exc:
             messagebox.showerror("Sync failed", str(exc))
             return
+        self.remote_output.delete("1.0", tk.END)
         self.remote_output.insert(tk.END, report.summary())
 
 

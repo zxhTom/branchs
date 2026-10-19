@@ -213,7 +213,7 @@ branchs remote set -p origin -s upstream
 
 ### 一键同步
 
-将主 remote 的所有分支同步到副 remote。冲突时保留副 remote 现状，给出提示。结束后会生成总结报告。
+Primary 是来源，Secondary 是目标。同步会逐个抓取 Primary 的分支并推送到 Secondary 的同名分支；单个分支失败不影响其他分支。它不会合并或强制推送：目标分支若无法快进，该分支记为失败并保留目标现状。Secondary 独有的分支不会删除，也不会切换或重置本地分支。结束后 GUI 和 CLI 会列出每个成功、失败的分支及原因；CLI 只要有失败分支就返回非零退出码。
 
 ```bash
 branchs remote sync
