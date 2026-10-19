@@ -74,28 +74,33 @@ class BranchManagerGUI:
         self._refresh()
 
     def _setup_style(self):
-        self.root.configure(background="#f3f5f9")
+        self.root.configure(background="#f4f6fa")
         style = ttk.Style(self.root)
         style.theme_use("clam")
-        style.configure(".", font=("Segoe UI", 10), background="#ffffff", foreground="#243148")
+        style.configure(".", font=("Segoe UI", 10), background="#ffffff", foreground="#172033")
         style.configure("TFrame", background="#ffffff")
-        style.configure("TLabel", background="#ffffff", foreground="#243148")
-        style.configure("TLabelFrame", background="#ffffff", bordercolor="#dfe5ee", relief="solid")
-        style.configure("TLabelFrame.Label", background="#ffffff", foreground="#34445f", font=("Segoe UI", 10, "bold"))
-        style.configure("TCheckbutton", background="#ffffff", foreground="#34445f")
-        style.configure("TButton", padding=(13, 8), borderwidth=0, background="#e7ecf4", foreground="#243148")
-        style.map("TButton", background=[("active", "#d8e2f0"), ("disabled", "#eff1f5")])
-        style.configure("Accent.TButton", background="#2563eb", foreground="#ffffff", font=("Segoe UI", 10, "bold"))
-        style.map("Accent.TButton", background=[("active", "#1d4ed8"), ("disabled", "#a7b9e5")])
-        style.configure("TEntry", padding=7, fieldbackground="#ffffff", bordercolor="#d4dce8")
-        style.configure("TCombobox", padding=7, fieldbackground="#ffffff", bordercolor="#d4dce8")
-        style.configure("TNotebook", background="#f3f5f9", borderwidth=0)
-        style.configure("TNotebook.Tab", padding=(20, 11), background="#e8edf5", foreground="#54647e")
-        style.map("TNotebook.Tab", background=[("selected", "#ffffff")], foreground=[("selected", "#1d4ed8")])
-        style.configure("Treeview", background="#ffffff", fieldbackground="#ffffff", foreground="#243148", rowheight=29, borderwidth=0)
-        style.configure("Treeview.Heading", background="#eef2f8", foreground="#43536c", font=("Segoe UI", 10, "bold"), padding=(8, 7))
-        style.map("Treeview", background=[("selected", "#dbeafe")], foreground=[("selected", "#1e3a8a")])
-        style.configure("Horizontal.TProgressbar", background="#2563eb", troughcolor="#e5eaf2", borderwidth=0)
+        style.configure("TLabel", background="#ffffff", foreground="#172033")
+        style.configure("Muted.TLabel", foreground="#697586")
+        style.configure("Section.TLabel", foreground="#172033", font=("Segoe UI", 12, "bold"))
+        style.configure("TLabelFrame", background="#ffffff", bordercolor="#dfe4ed", relief="solid")
+        style.configure("TLabelFrame.Label", background="#ffffff", foreground="#172033", font=("Segoe UI", 10, "bold"))
+        style.configure("TCheckbutton", background="#ffffff", foreground="#344054")
+        style.configure("TButton", padding=(12, 8), borderwidth=1, bordercolor="#d8e0eb", background="#ffffff", foreground="#24334a")
+        style.map("TButton", background=[("active", "#eef3fa"), ("disabled", "#f6f7f9")])
+        style.configure("Accent.TButton", padding=(14, 9), borderwidth=0, background="#295ee6", foreground="#ffffff", font=("Segoe UI", 10, "bold"))
+        style.map("Accent.TButton", background=[("active", "#1e4ac1"), ("disabled", "#b4c4ea")])
+        style.configure("Compact.TButton", padding=(7, 4), borderwidth=0, background="#f0f4fa", foreground="#45556d")
+        style.map("Compact.TButton", background=[("active", "#e2eaf5")])
+        style.configure("TEntry", padding=7, fieldbackground="#ffffff", bordercolor="#cbd5e1", lightcolor="#cbd5e1", darkcolor="#cbd5e1")
+        style.configure("TCombobox", padding=7, fieldbackground="#ffffff", bordercolor="#cbd5e1", lightcolor="#cbd5e1", darkcolor="#cbd5e1")
+        style.map("TCombobox", fieldbackground=[("readonly", "#ffffff")], selectbackground=[("readonly", "#ffffff")],
+                  selectforeground=[("readonly", "#172033")])
+        style.configure("Flat.TNotebook", background="#ffffff", borderwidth=0)
+        style.layout("Flat.TNotebook.Tab", [])
+        style.configure("Treeview", background="#ffffff", fieldbackground="#ffffff", foreground="#24334a", rowheight=32, borderwidth=0)
+        style.configure("Treeview.Heading", background="#f4f6fa", foreground="#64748b", font=("Segoe UI", 9, "bold"), padding=(9, 8), relief="flat")
+        style.map("Treeview", background=[("selected", "#eaf1ff")], foreground=[("selected", "#1742a6")])
+        style.configure("Horizontal.TProgressbar", background="#295ee6", troughcolor="#e5eaf2", borderwidth=0)
 
     def _style_text_outputs(self):
         for widget in (self.merge_output, self.rebase_output, self.remote_output):
@@ -121,17 +126,33 @@ class BranchManagerGUI:
         self.root.config(menu=menubar)
 
     def _create_main_view(self):
-        repo_bar = ttk.Frame(self.root)
-        repo_bar.pack(fill=tk.X, padx=10, pady=(8, 0))
-        ttk.Label(repo_bar, text="Repository:").pack(side=tk.LEFT)
+        header = tk.Frame(self.root, background="#172033", height=78)
+        header.pack(fill=tk.X)
+        header.pack_propagate(False)
+        tk.Label(header, text="branchs", background="#172033", foreground="#ffffff",
+                 font=("Segoe UI", 18, "bold")).pack(side=tk.LEFT, padx=(24, 28))
+        tk.Label(header, text="REPOSITORY", background="#172033", foreground="#a9b8ce",
+                 font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 10))
         self.repo_path_var = tk.StringVar()
-        self.repo_combo = ttk.Combobox(repo_bar, textvariable=self.repo_path_var, state="readonly")
-        self.repo_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=6)
+        self.repo_combo = ttk.Combobox(header, textvariable=self.repo_path_var, state="readonly")
+        self.repo_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.repo_combo.bind("<<ComboboxSelected>>", self._on_recent_repo_selected)
-        ttk.Button(repo_bar, text="Open Repo...", command=self._open_repo).pack(side=tk.LEFT)
+        ttk.Button(header, text="Open repository", command=self._open_repo).pack(side=tk.LEFT, padx=(10, 24))
 
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        nav = tk.Frame(self.root, background="#ffffff", height=52, highlightbackground="#dfe4ed", highlightthickness=1)
+        nav.pack(fill=tk.X)
+        nav.pack_propagate(False)
+        self._nav_buttons = []
+        for index, label in enumerate(("Branches", "Merge", "Rebase", "Commit", "Remote Sync", "Settings")):
+            button = tk.Button(nav, text=label, command=lambda i=index: self.notebook.select(i),
+                               background="#ffffff", foreground="#59677c", activebackground="#ffffff",
+                               activeforeground="#295ee6", relief="flat", borderwidth=0,
+                               highlightthickness=0, font=("Segoe UI", 10), padx=17, pady=12, cursor="hand2")
+            button.pack(side=tk.LEFT, padx=(9 if index == 0 else 0, 0))
+            self._nav_buttons.append(button)
+
+        self.notebook = ttk.Notebook(self.root, style="Flat.TNotebook")
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
 
         self._create_branch_tab()
         self._create_merge_tab()
@@ -140,10 +161,24 @@ class BranchManagerGUI:
         self._create_remote_tab()
         self._create_config_tab()
         self._style_text_outputs()
+        self.notebook.bind("<<NotebookTabChanged>>", self._update_nav)
+        self._update_nav()
+
+    def _update_nav(self, _event=None):
+        active = self.notebook.index(self.notebook.select())
+        for index, button in enumerate(self._nav_buttons):
+            selected = index == active
+            button.configure(foreground="#295ee6" if selected else "#59677c",
+                             background="#eef3ff" if selected else "#ffffff",
+                             font=("Segoe UI", 10, "bold" if selected else "normal"))
 
     def _create_branch_tab(self):
-        frame = ttk.Frame(self.notebook)
+        frame = ttk.Frame(self.notebook, padding=(18, 16))
         self.notebook.add(frame, text="Branches")
+
+        ttk.Label(frame, text="Branches", style="Section.TLabel").pack(anchor="w", pady=(0, 4))
+        ttk.Label(frame, text="Review local branches and set their type and upstream.",
+                  style="Muted.TLabel").pack(anchor="w", pady=(0, 10))
 
         toolbar = ttk.Frame(frame)
         toolbar.pack(fill=tk.X, padx=5, pady=5)
@@ -151,8 +186,10 @@ class BranchManagerGUI:
         ttk.Button(toolbar, text="Refresh", command=self._refresh_branch_list).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="Fetch All", command=self._fetch_all).pack(side=tk.LEFT, padx=2)
 
+        tree_area = ttk.Frame(frame)
+        tree_area.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         columns = ("name", "type", "upstream", "current")
-        self.branch_tree = ttk.Treeview(frame, columns=columns, show="headings")
+        self.branch_tree = ttk.Treeview(tree_area, columns=columns, show="headings")
         self.branch_tree.heading("name", text="Branch")
         self.branch_tree.heading("type", text="Type")
         self.branch_tree.heading("upstream", text="Upstream")
@@ -163,11 +200,11 @@ class BranchManagerGUI:
         self.branch_tree.column("upstream", width=200)
         self.branch_tree.column("current", width=60)
 
-        scrollbar = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=self.branch_tree.yview)
+        scrollbar = ttk.Scrollbar(tree_area, orient=tk.VERTICAL, command=self.branch_tree.yview)
         self.branch_tree.configure(yscrollcommand=scrollbar.set)
 
-        self.branch_tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.branch_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         self.branch_tree.bind("<Double-1>", self._on_branch_double_click)
         self.branch_tree.bind("<Button-3>", self._on_branch_right_click)
@@ -190,266 +227,314 @@ class BranchManagerGUI:
         ttk.Button(detail_frame, text="Set as Default", command=self._set_default_from_gui).grid(row=0, column=5, padx=5)
 
     def _create_merge_tab(self):
-        frame = ttk.Frame(self.notebook)
-        self.notebook.add(frame, text="Merge")
+        page = ttk.Frame(self.notebook)
+        self.notebook.add(page, text="Merge")
+        left, right = self._operation_columns(page)
+        ttk.Label(left, text="Merge branches", style="Section.TLabel").pack(anchor="w", pady=(0, 6))
+        ttk.Label(left, text="Bring changes from a source branch into a target branch.",
+                  style="Muted.TLabel", wraplength=350).pack(anchor="w", pady=(0, 22))
 
-        ttk.Label(frame, text="Source Branch:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(left, text="Source branch").pack(anchor="w", pady=(0, 5))
+        source_row = ttk.Frame(left)
+        source_row.pack(fill=tk.X, pady=(0, 16))
         self.merge_source_var = tk.StringVar()
-        self.merge_source_combo = ttk.Combobox(frame, textvariable=self.merge_source_var, width=28)
-        self.merge_source_combo.grid(row=0, column=1, padx=5, pady=5)
+        self.merge_source_combo = ttk.Combobox(source_row, textvariable=self.merge_source_var)
+        self.merge_source_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self._branch_combos.append(self.merge_source_combo)
-        ttk.Button(frame, text="Use Default", command=self._use_default_source).grid(row=0, column=2, padx=5)
+        ttk.Button(source_row, text="Default", command=self._use_default_source,
+                   style="Compact.TButton").pack(side=tk.LEFT, padx=(8, 0))
 
-        ttk.Label(frame, text="Target Branch:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(left, text="Target branch").pack(anchor="w", pady=(0, 5))
         self.merge_target_var = tk.StringVar()
-        self.merge_target_combo = ttk.Combobox(frame, textvariable=self.merge_target_var, width=28)
-        self.merge_target_combo.grid(row=1, column=1, padx=5, pady=5)
+        self.merge_target_combo = ttk.Combobox(left, textvariable=self.merge_target_var)
+        self.merge_target_combo.pack(fill=tk.X, pady=(0, 16))
         self._branch_combos.append(self.merge_target_combo)
 
-        ttk.Label(frame, text="Conflict Mode:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(left, text="Conflict handling").pack(anchor="w", pady=(0, 5))
         self.merge_mode_var = tk.StringVar(value="abort")
-        ttk.Combobox(frame, textvariable=self.merge_mode_var, values=MODE_OPTIONS, state="readonly").grid(
-            row=2, column=1, sticky=tk.W, padx=5, pady=5
-        )
-
+        ttk.Combobox(left, textvariable=self.merge_mode_var, values=MODE_OPTIONS,
+                     state="readonly").pack(fill=tk.X, pady=(0, 14))
         self.merge_noff_var = tk.BooleanVar()
-        ttk.Checkbutton(frame, text="No fast-forward", variable=self.merge_noff_var).grid(
-            row=2, column=2, sticky=tk.W, padx=5
-        )
+        ttk.Checkbutton(left, text="Create a merge commit (no fast-forward)",
+                        variable=self.merge_noff_var).pack(anchor="w", pady=(0, 20))
+        ttk.Button(left, text="Merge branches", command=self._do_merge,
+                   style="Accent.TButton").pack(fill=tk.X)
 
-        ttk.Button(frame, text="Merge", command=self._do_merge).grid(row=3, column=0, columnspan=2, pady=10)
-
-        self.merge_output = scrolledtext.ScrolledText(frame, height=20, width=80)
-        self.merge_output.grid(row=4, column=0, columnspan=3, padx=5, pady=5, sticky="nsew")
-
-        frame.grid_rowconfigure(4, weight=1)
-        frame.grid_columnconfigure(1, weight=1)
+        ttk.Label(right, text="Activity", style="Section.TLabel").pack(anchor="w", pady=(0, 6))
+        ttk.Label(right, text="Merge results and conflict details appear here.",
+                  style="Muted.TLabel").pack(anchor="w", pady=(0, 16))
+        self.merge_output = scrolledtext.ScrolledText(right, wrap="word")
+        self.merge_output.pack(fill=tk.BOTH, expand=True)
 
     def _create_rebase_tab(self):
-        frame = ttk.Frame(self.notebook)
-        self.notebook.add(frame, text="Rebase")
+        page = ttk.Frame(self.notebook)
+        self.notebook.add(page, text="Rebase")
+        left, right = self._operation_columns(page)
+        ttk.Label(left, text="Rebase branch", style="Section.TLabel").pack(anchor="w", pady=(0, 6))
+        ttk.Label(left, text="Replay a branch on top of its upstream branch.",
+                  style="Muted.TLabel", wraplength=350).pack(anchor="w", pady=(0, 22))
 
-        ttk.Label(frame, text="Current / Branch to Rebase:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(left, text="Branch to rebase").pack(anchor="w", pady=(0, 5))
+        branch_row = ttk.Frame(left)
+        branch_row.pack(fill=tk.X, pady=(0, 16))
         self.rebase_branch_var = tk.StringVar()
-        self.rebase_branch_combo = ttk.Combobox(frame, textvariable=self.rebase_branch_var, width=28)
-        self.rebase_branch_combo.grid(row=0, column=1, padx=5, pady=5)
+        self.rebase_branch_combo = ttk.Combobox(branch_row, textvariable=self.rebase_branch_var)
+        self.rebase_branch_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self._branch_combos.append(self.rebase_branch_combo)
-        ttk.Button(frame, text="Use Current", command=self._use_current_branch_for_rebase).grid(row=0, column=2, padx=5)
+        ttk.Button(branch_row, text="Current", command=self._use_current_branch_for_rebase,
+                   style="Compact.TButton").pack(side=tk.LEFT, padx=(8, 0))
 
-        ttk.Label(frame, text="Upstream (Rebase onto):").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(left, text="Rebase onto").pack(anchor="w", pady=(0, 5))
         self.rebase_upstream_var = tk.StringVar()
-        self.rebase_upstream_combo = ttk.Combobox(frame, textvariable=self.rebase_upstream_var, width=28)
-        self.rebase_upstream_combo.grid(row=1, column=1, padx=5, pady=5)
+        self.rebase_upstream_combo = ttk.Combobox(left, textvariable=self.rebase_upstream_var)
+        self.rebase_upstream_combo.pack(fill=tk.X, pady=(0, 16))
         self._branch_combos.append(self.rebase_upstream_combo)
 
-        ttk.Label(frame, text="Conflict Mode:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(left, text="Conflict handling").pack(anchor="w", pady=(0, 5))
         self.rebase_mode_var = tk.StringVar(value="abort")
-        ttk.Combobox(frame, textvariable=self.rebase_mode_var, values=MODE_OPTIONS, state="readonly").grid(
-            row=2, column=1, sticky=tk.W, padx=5, pady=5
-        )
+        ttk.Combobox(left, textvariable=self.rebase_mode_var, values=MODE_OPTIONS,
+                     state="readonly").pack(fill=tk.X, pady=(0, 20))
+        ttk.Button(left, text="Start rebase", command=self._do_rebase,
+                   style="Accent.TButton").pack(fill=tk.X, pady=(0, 18))
+        ttk.Separator(left).pack(fill=tk.X, pady=(0, 12))
+        ttk.Label(left, text="In-progress rebase", style="Section.TLabel").pack(anchor="w", pady=(0, 10))
+        continuation = ttk.Frame(left)
+        continuation.pack(fill=tk.X)
+        for caption, action in (("Continue", self._rebase_continue),
+                                ("Skip", self._rebase_skip), ("Abort", self._rebase_abort)):
+            ttk.Button(continuation, text=caption, command=action).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
 
-        btn_box = ttk.Frame(frame)
-        btn_box.grid(row=3, column=0, columnspan=3, pady=10)
+        ttk.Label(right, text="Activity", style="Section.TLabel").pack(anchor="w", pady=(0, 6))
+        ttk.Label(right, text="Rebase results and conflict details appear here.",
+                  style="Muted.TLabel").pack(anchor="w", pady=(0, 16))
+        self.rebase_output = scrolledtext.ScrolledText(right, wrap="word")
+        self.rebase_output.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Button(btn_box, text="Rebase", command=self._do_rebase).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_box, text="Continue", command=self._rebase_continue).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_box, text="Skip", command=self._rebase_skip).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_box, text="Abort", command=self._rebase_abort).pack(side=tk.LEFT, padx=5)
-
-        self.rebase_output = scrolledtext.ScrolledText(frame, height=20, width=80)
-        self.rebase_output.grid(row=4, column=0, columnspan=3, padx=5, pady=5, sticky="nsew")
-
-        frame.grid_rowconfigure(4, weight=1)
-        frame.grid_columnconfigure(1, weight=1)
-
+    def _operation_columns(self, page):
+        page.columnconfigure(0, weight=2, uniform="operation_panes")
+        page.columnconfigure(1, weight=3, uniform="operation_panes")
+        page.rowconfigure(0, weight=1)
+        left = ttk.Frame(page, padding=(22, 22))
+        left.grid(row=0, column=0, sticky="nsew")
+        ttk.Separator(page, orient=tk.VERTICAL).grid(row=0, column=0, sticky="nse")
+        right = ttk.Frame(page, padding=(22, 22))
+        right.grid(row=0, column=1, sticky="nsew")
+        return left, right
 
     def _create_commit_tab(self):
         page = ttk.Frame(self.notebook)
         self.notebook.add(page, text="Commit")
-        canvas = tk.Canvas(page, background="#ffffff", highlightthickness=0)
-        page_scroll = ttk.Scrollbar(page, orient=tk.VERTICAL, command=canvas.yview)
-        page_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        canvas.configure(yscrollcommand=page_scroll.set)
-        frame = ttk.Frame(canvas)
-        window = canvas.create_window((0, 0), window=frame, anchor="nw")
-        frame.bind("<Configure>", lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.bind("<Configure>", lambda event: canvas.itemconfigure(window, width=event.width))
+        page.columnconfigure(0, weight=2, uniform="commit_panes")
+        page.columnconfigure(1, weight=3, uniform="commit_panes")
+        page.rowconfigure(0, weight=1)
 
-        message_frame = ttk.LabelFrame(frame, text="Commit message  ·  Conventional Commits")
-        message_frame.grid(row=0, column=0, columnspan=3, sticky="ew", padx=8, pady=(10, 6), ipadx=10, ipady=8)
-        message_frame.columnconfigure(2, weight=1)
+        left = ttk.Frame(page, padding=(18, 16))
+        left.grid(row=0, column=0, sticky="nsew")
+        left.columnconfigure(0, weight=1)
+        left.rowconfigure(2, weight=1)
+        ttk.Separator(page, orient=tk.VERTICAL).grid(row=0, column=0, sticky="nse")
+        right = ttk.Frame(page, padding=(20, 16))
+        right.grid(row=0, column=1, sticky="nsew")
+        right.columnconfigure(0, weight=1)
+        right.rowconfigure(2, weight=1)
+
+        files_header = ttk.Frame(left)
+        files_header.grid(row=0, column=0, sticky="ew", pady=(0, 7))
+        ttk.Label(files_header, text="Changes", style="Section.TLabel").pack(side=tk.LEFT)
+        self.pending_status_var = tk.StringVar()
+        ttk.Label(files_header, textvariable=self.pending_status_var, style="Muted.TLabel").pack(side=tk.RIGHT)
+
+        mode_row = ttk.Frame(left)
+        mode_row.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        ttk.Label(mode_row, text="Commit from").pack(side=tk.LEFT, padx=(0, 8))
+        self.commit_mode_var = tk.StringVar(value="IDEA current changelist")
+        mode_combo = ttk.Combobox(
+            mode_row, textvariable=self.commit_mode_var,
+            values=("IDEA current changelist", "All staged changes"), state="readonly", width=24,
+        )
+        mode_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        mode_combo.bind("<<ComboboxSelected>>", lambda _event: self._refresh_pending_files())
+        ttk.Button(mode_row, text="↻", width=3, command=self._refresh_pending_files,
+                   style="Compact.TButton").pack(side=tk.LEFT, padx=(8, 0))
+
+        files_area = ttk.Frame(left)
+        files_area.grid(row=2, column=0, sticky="nsew")
+        files_area.columnconfigure(0, weight=1)
+        files_area.rowconfigure(0, weight=1)
+        self.pending_files_tree = ttk.Treeview(files_area, columns=("change", "path"), show="headings", height=8)
+        self.pending_files_tree.heading("change", text="STATUS")
+        self.pending_files_tree.heading("path", text="STAGED FILE")
+        self.pending_files_tree.column("change", width=88, anchor="center", stretch=False)
+        self.pending_files_tree.column("path", width=280)
+        self.pending_files_tree.grid(row=0, column=0, sticky="nsew")
+        pending_scroll = ttk.Scrollbar(files_area, orient=tk.VERTICAL, command=self.pending_files_tree.yview)
+        pending_scroll.grid(row=0, column=1, sticky="ns")
+        self.pending_files_tree.configure(yscrollcommand=pending_scroll.set)
+        self.pending_files_tree.tag_configure("added", foreground="#15803d")
+        self.pending_files_tree.tag_configure("deleted", foreground="#c24140")
+        self.pending_files_tree.tag_configure("modified", foreground="#295ee6")
+        ttk.Label(left, text="Only files already staged in Git can be committed.", style="Muted.TLabel").grid(
+            row=3, column=0, sticky="w", pady=(6, 8))
+        ttk.Separator(left).grid(row=4, column=0, sticky="ew", pady=(0, 9))
+
+        message_header = ttk.Frame(left)
+        message_header.grid(row=5, column=0, sticky="ew", pady=(0, 7))
+        ttk.Label(message_header, text="Commit message", style="Section.TLabel").pack(side=tk.LEFT)
+        ttk.Button(message_header, text="Suggest summary", command=self._suggest_commit_message,
+                   style="Compact.TButton").pack(side=tk.RIGHT)
         self.commit_type_var = tk.StringVar()
         self.commit_scope_var = tk.StringVar()
         self.commit_summary_var = tk.StringVar()
         self.commit_breaking_var = tk.BooleanVar()
-        ttk.Label(message_frame, text="类型").grid(row=0, column=0, sticky="w", padx=8, pady=5)
-        ttk.Label(message_frame, text="影响范围（可选）").grid(row=0, column=1, sticky="w", padx=8, pady=5)
-        ttk.Label(message_frame, text="摘要").grid(row=0, column=2, sticky="w", padx=8, pady=5)
-        ttk.Combobox(message_frame, textvariable=self.commit_type_var, values=list(COMMIT_TYPES),
-                     state="readonly", width=18).grid(row=1, column=0, sticky="ew", padx=8)
-        ttk.Entry(message_frame, textvariable=self.commit_scope_var, width=18).grid(row=1, column=1, sticky="ew", padx=8)
-        ttk.Entry(message_frame, textvariable=self.commit_summary_var).grid(row=1, column=2, sticky="ew", padx=8)
-        ttk.Label(message_frame, text="详细说明（可选）").grid(row=2, column=0, sticky="w", padx=8, pady=(10, 4))
-        self.commit_body_text = tk.Text(message_frame, height=2, wrap="word", font=("Segoe UI", 10),
-                                        background="#ffffff", foreground="#243148", relief="flat", padx=8, pady=6)
-        self.commit_body_text.grid(row=3, column=0, columnspan=3, sticky="ew", padx=8)
-        ttk.Checkbutton(message_frame, text="不兼容变更 (!)", variable=self.commit_breaking_var).grid(
-            row=4, column=0, sticky="w", padx=8, pady=6)
+        fields = ttk.Frame(left)
+        fields.grid(row=6, column=0, sticky="ew")
+        fields.columnconfigure(0, weight=1)
+        fields.columnconfigure(1, weight=1)
+        ttk.Label(fields, text="Type").grid(row=0, column=0, sticky="w", pady=(0, 4))
+        ttk.Label(fields, text="Scope  ·  optional").grid(row=0, column=1, sticky="w", padx=(10, 0), pady=(0, 4))
+        ttk.Combobox(fields, textvariable=self.commit_type_var, values=list(COMMIT_TYPES),
+                     state="readonly").grid(row=1, column=0, sticky="ew")
+        ttk.Entry(fields, textvariable=self.commit_scope_var).grid(row=1, column=1, sticky="ew", padx=(10, 0))
+        ttk.Label(fields, text="Summary").grid(row=2, column=0, columnspan=2, sticky="w", pady=(7, 3))
+        ttk.Entry(fields, textvariable=self.commit_summary_var).grid(row=3, column=0, columnspan=2, sticky="ew")
+        ttk.Label(fields, text="Description  ·  optional").grid(
+            row=4, column=0, columnspan=2, sticky="w", pady=(7, 3))
+        self.commit_body_text = tk.Text(fields, height=2, wrap="word", font=("Segoe UI", 10),
+                                        background="#ffffff", foreground="#172033", relief="solid",
+                                        borderwidth=1, highlightthickness=0, padx=8, pady=6)
+        self.commit_body_text.grid(row=5, column=0, columnspan=2, sticky="ew")
+        ttk.Checkbutton(fields, text="Breaking change", variable=self.commit_breaking_var).grid(
+            row=6, column=0, columnspan=2, sticky="w", pady=(5, 2))
         self.commit_preview_var = tk.StringVar()
-        ttk.Label(message_frame, textvariable=self.commit_preview_var, foreground="#2563eb").grid(
-            row=4, column=1, columnspan=2, sticky="w", padx=8)
+        ttk.Label(fields, textvariable=self.commit_preview_var, foreground="#295ee6",
+                  wraplength=370).grid(row=7, column=0, columnspan=2, sticky="w", pady=(0, 5))
         for variable in (self.commit_type_var, self.commit_scope_var, self.commit_summary_var, self.commit_breaking_var):
             variable.trace_add("write", lambda *_: self._update_commit_preview())
         self.commit_body_text.bind("<KeyRelease>", lambda _event: self._update_commit_preview())
         self._update_commit_preview()
 
-        mode_frame = ttk.Frame(frame)
-        mode_frame.grid(row=1, column=0, columnspan=3, sticky=tk.W, padx=5, pady=5)
-        ttk.Label(mode_frame, text="Commit Mode:").pack(side=tk.LEFT, padx=2)
-        self.commit_mode_var = tk.StringVar(value="IDEA current changelist")
-        mode_combo = ttk.Combobox(
-            mode_frame, textvariable=self.commit_mode_var,
-            values=("IDEA current changelist", "All staged changes"), state="readonly", width=22,
-        )
-        mode_combo.pack(side=tk.LEFT, padx=2)
-        mode_combo.bind("<<ComboboxSelected>>", lambda _event: self._refresh_pending_files())
-        btn_frame = ttk.Frame(frame)
-        btn_frame.grid(row=2, column=0, columnspan=3, pady=5)
-        ttk.Button(btn_frame, text="Suggest Summary", command=self._suggest_commit_message).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="Commit", command=self._commit_all).pack(side=tk.LEFT, padx=2)
-        self.publish_button = ttk.Button(btn_frame, text="Publish  ·  Sync / Commit / Push",
+        actions = ttk.Frame(left)
+        actions.grid(row=7, column=0, sticky="ew")
+        actions.columnconfigure(1, weight=1)
+        ttk.Button(actions, text="Commit", command=self._commit_all).grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        self.publish_button = ttk.Button(actions, text="Publish",
                                          command=self._publish_current, style="Accent.TButton")
-        self.publish_button.pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="Refresh Files", command=self._refresh_pending_files).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="Refresh History", command=self._refresh_commit_history).pack(side=tk.LEFT, padx=2)
+        self.publish_button.grid(row=0, column=1, sticky="ew")
+        ttk.Label(left, text="Publish: sync → rebase → commit → push",
+                  style="Muted.TLabel").grid(row=8, column=0, sticky="w", pady=(7, 0))
 
+        history_header = ttk.Frame(right)
+        history_header.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        ttk.Label(history_header, text="History", style="Section.TLabel").pack(side=tk.LEFT)
+        ttk.Button(history_header, text="Refresh", command=self._refresh_commit_history).pack(side=tk.RIGHT)
         self.commit_repo_var = tk.StringVar(value="No repository open")
-        ttk.Label(frame, textvariable=self.commit_repo_var).grid(row=3, column=0, columnspan=3, sticky=tk.W, padx=5)
-        ttk.Label(frame, text="STAGED FILES FOR NEW COMMIT").grid(
-            row=4, column=0, columnspan=3, sticky=tk.W, padx=5
-        )
-        self.pending_status_var = tk.StringVar()
-        ttk.Label(frame, textvariable=self.pending_status_var, foreground="#64748b").grid(
-            row=4, column=1, columnspan=2, sticky="e", padx=10)
-        files_frame = ttk.Frame(frame)
-        files_frame.grid(row=5, column=0, columnspan=3, sticky="ew", padx=8, pady=6)
-        files_frame.columnconfigure(0, weight=1)
-        self.pending_files_tree = ttk.Treeview(files_frame, columns=("change", "path"), show="headings", height=5)
-        self.pending_files_tree.heading("change", text="CHANGE")
-        self.pending_files_tree.heading("path", text="FILE")
-        self.pending_files_tree.column("change", width=110, anchor="center", stretch=False)
-        self.pending_files_tree.column("path", width=700)
-        self.pending_files_tree.grid(row=0, column=0, sticky="ew")
-        pending_scroll = ttk.Scrollbar(files_frame, orient=tk.VERTICAL, command=self.pending_files_tree.yview)
-        pending_scroll.grid(row=0, column=1, sticky="ns")
-        self.pending_files_tree.configure(yscrollcommand=pending_scroll.set)
-        self.pending_files_tree.tag_configure("added", foreground="#15803d")
-        self.pending_files_tree.tag_configure("deleted", foreground="#b91c1c")
-        self.pending_files_tree.tag_configure("modified", foreground="#1d4ed8")
-
+        ttk.Label(right, textvariable=self.commit_repo_var, style="Muted.TLabel",
+                  wraplength=600).grid(row=1, column=0, sticky="w", pady=(0, 12))
+        history_area = ttk.Frame(right)
+        history_area.grid(row=2, column=0, sticky="nsew")
+        history_area.columnconfigure(0, weight=1)
+        history_area.rowconfigure(0, weight=1)
         columns = ("hash", "author", "date", "message")
-        self.commit_tree = ttk.Treeview(frame, columns=columns, show="headings", height=15)
-        self.commit_tree.heading("hash", text="Hash")
-        self.commit_tree.heading("author", text="Author")
-        self.commit_tree.heading("date", text="Date")
-        self.commit_tree.heading("message", text="Message")
+        self.commit_tree = ttk.Treeview(history_area, columns=columns, show="headings", height=12)
+        for key, label in (("hash", "HASH"), ("author", "AUTHOR"), ("date", "DATE"), ("message", "MESSAGE")):
+            self.commit_tree.heading(key, text=label)
+        self.commit_tree.column("hash", width=82, stretch=False)
+        self.commit_tree.column("author", width=100, stretch=False)
+        self.commit_tree.column("date", width=95, stretch=False)
+        self.commit_tree.column("message", width=290)
+        self.commit_tree.grid(row=0, column=0, sticky="nsew")
+        history_scroll = ttk.Scrollbar(history_area, orient=tk.VERTICAL, command=self.commit_tree.yview)
+        history_scroll.grid(row=0, column=1, sticky="ns")
+        self.commit_tree.configure(yscrollcommand=history_scroll.set)
 
-        self.commit_tree.column("hash", width=80)
-        self.commit_tree.column("author", width=150)
-        self.commit_tree.column("date", width=100)
-        self.commit_tree.column("message", width=400)
-
-        scrollbar = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=self.commit_tree.yview)
-        self.commit_tree.configure(yscrollcommand=scrollbar.set)
-
-        self.commit_tree.grid(row=6, column=0, columnspan=3, sticky="nsew", padx=5, pady=5)
-        scrollbar.grid(row=6, column=3, sticky="ns")
-
-        cp_frame = ttk.LabelFrame(frame, text="Cherry-pick  ·  Copy selected commit to target branch, then return here (no push)")
-        cp_frame.grid(row=7, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
-
-        ttk.Label(cp_frame, text="Target:").pack(side=tk.LEFT, padx=2)
+        ttk.Separator(right).grid(row=3, column=0, sticky="ew", pady=16)
+        ttk.Label(right, text="Cherry-pick", style="Section.TLabel").grid(row=4, column=0, sticky="w", pady=(0, 5))
+        ttk.Label(right, text="Copy the selected commit to a local target branch. You return here afterward; no push is made.",
+                  style="Muted.TLabel", wraplength=600).grid(row=5, column=0, sticky="w", pady=(0, 10))
+        cherry_actions = ttk.Frame(right)
+        cherry_actions.grid(row=6, column=0, sticky="ew")
+        ttk.Label(cherry_actions, text="Target branch").pack(side=tk.LEFT, padx=(0, 8))
         self.cp_target_var = tk.StringVar()
-        self.cp_target_combo = ttk.Combobox(cp_frame, textvariable=self.cp_target_var, width=18)
-        self.cp_target_combo.pack(side=tk.LEFT, padx=2)
+        self.cp_target_combo = ttk.Combobox(cherry_actions, textvariable=self.cp_target_var, width=17)
+        self.cp_target_combo.pack(side=tk.LEFT, padx=(0, 8))
         self._branch_combos.append(self.cp_target_combo)
-        ttk.Button(cp_frame, text="Cherry-pick Selected", command=self._cherry_pick_selected).pack(side=tk.LEFT, padx=5)
-        ttk.Button(cp_frame, text="Revert Selected", command=self._revert_selected).pack(side=tk.LEFT, padx=5)
-
-        frame.grid_rowconfigure(6, weight=1)
-        frame.grid_columnconfigure(1, weight=1)
+        ttk.Button(cherry_actions, text="Cherry-pick", command=self._cherry_pick_selected).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(cherry_actions, text="Revert selected", command=self._revert_selected).pack(side=tk.LEFT)
 
     def _create_remote_tab(self):
-        frame = ttk.Frame(self.notebook)
-        self.notebook.add(frame, text="Remote Sync")
-
-        # Top section: Remotes list
-        remotes_frame = ttk.LabelFrame(frame, text="Detected Remotes")
-        remotes_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-        toolbar = ttk.Frame(remotes_frame)
-        toolbar.pack(fill=tk.X, padx=5, pady=2)
-        ttk.Button(toolbar, text="Scan / Refresh Remotes", command=self._refresh_remote_list).pack(side=tk.LEFT, padx=2)
-
-        columns = ("name", "url")
-        self.remote_tree = ttk.Treeview(remotes_frame, columns=columns, show="headings", height=5)
-        self.remote_tree.heading("name", text="Remote Name")
+        page = ttk.Frame(self.notebook)
+        self.notebook.add(page, text="Remote Sync")
+        left, right = self._operation_columns(page)
+        ttk.Label(left, text="Remote sync", style="Section.TLabel").pack(anchor="w", pady=(0, 6))
+        ttk.Label(left, text="Review remotes and choose where to synchronize branches.",
+                  style="Muted.TLabel", wraplength=350).pack(anchor="w", pady=(0, 16))
+        remote_header = ttk.Frame(left)
+        remote_header.pack(fill=tk.X, pady=(0, 8))
+        ttk.Label(remote_header, text="Configured remotes").pack(side=tk.LEFT)
+        ttk.Button(remote_header, text="Refresh", command=self._refresh_remote_list,
+                   style="Compact.TButton").pack(side=tk.RIGHT)
+        remote_area = ttk.Frame(left)
+        remote_area.pack(fill=tk.X, pady=(0, 16))
+        remote_area.columnconfigure(0, weight=1)
+        self.remote_tree = ttk.Treeview(remote_area, columns=("name", "url"), show="headings", height=5)
+        self.remote_tree.heading("name", text="NAME")
         self.remote_tree.heading("url", text="URL")
-        self.remote_tree.column("name", width=120)
-        self.remote_tree.column("url", width=400)
-
-        remote_scroll = ttk.Scrollbar(remotes_frame, orient=tk.VERTICAL, command=self.remote_tree.yview)
+        self.remote_tree.column("name", width=100, stretch=False)
+        self.remote_tree.column("url", width=270)
+        self.remote_tree.grid(row=0, column=0, sticky="ew")
+        remote_scroll = ttk.Scrollbar(remote_area, orient=tk.VERTICAL, command=self.remote_tree.yview)
+        remote_scroll.grid(row=0, column=1, sticky="ns")
         self.remote_tree.configure(yscrollcommand=remote_scroll.set)
-        self.remote_tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=2)
-        remote_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-
-        # Middle section: Sync configuration
-        sync_frame = ttk.LabelFrame(frame, text="Sync Settings")
-        sync_frame.pack(fill=tk.X, padx=5, pady=5)
-
-        ttk.Label(sync_frame, text="Primary Remote:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Separator(left).pack(fill=tk.X, pady=(0, 16))
+        ttk.Label(left, text="Sync settings", style="Section.TLabel").pack(anchor="w", pady=(0, 14))
+        ttk.Label(left, text="Primary remote").pack(anchor="w", pady=(0, 5))
         self.primary_remote_var = tk.StringVar(value="origin")
-        self.primary_remote_combo = ttk.Combobox(sync_frame, textvariable=self.primary_remote_var, width=28)
-        self.primary_remote_combo.grid(row=0, column=1, padx=5, pady=5)
+        self.primary_remote_combo = ttk.Combobox(left, textvariable=self.primary_remote_var)
+        self.primary_remote_combo.pack(fill=tk.X, pady=(0, 14))
         self._remote_combos.append(self.primary_remote_combo)
-
-        ttk.Label(sync_frame, text="Secondary Remote:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(left, text="Secondary remote").pack(anchor="w", pady=(0, 5))
         self.secondary_remote_var = tk.StringVar(value="upstream")
-        self.secondary_remote_combo = ttk.Combobox(sync_frame, textvariable=self.secondary_remote_var, width=28)
-        self.secondary_remote_combo.grid(row=1, column=1, padx=5, pady=5)
+        self.secondary_remote_combo = ttk.Combobox(left, textvariable=self.secondary_remote_var)
+        self.secondary_remote_combo.pack(fill=tk.X, pady=(0, 16))
         self._remote_combos.append(self.secondary_remote_combo)
+        sync_buttons = ttk.Frame(left)
+        sync_buttons.pack(fill=tk.X)
+        ttk.Button(sync_buttons, text="Save settings", command=self._save_remote_config_from_gui).pack(
+            side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+        ttk.Button(sync_buttons, text="Sync remotes", command=self._do_sync,
+                   style="Accent.TButton").pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        btn_box = ttk.Frame(sync_frame)
-        btn_box.grid(row=2, column=0, columnspan=3, pady=5)
-        ttk.Button(btn_box, text="Save as Config", command=self._save_remote_config_from_gui).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_box, text="Sync", command=self._do_sync).pack(side=tk.LEFT, padx=5)
-
-        # Bottom section: Output
-        self.remote_output = scrolledtext.ScrolledText(frame, height=15, width=80)
-        self.remote_output.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        ttk.Label(right, text="Sync report", style="Section.TLabel").pack(anchor="w", pady=(0, 6))
+        ttk.Label(right, text="Remote activity and results appear here.",
+                  style="Muted.TLabel").pack(anchor="w", pady=(0, 16))
+        self.remote_output = scrolledtext.ScrolledText(right, wrap="word")
+        self.remote_output.pack(fill=tk.BOTH, expand=True)
 
     def _create_config_tab(self):
-        frame = ttk.Frame(self.notebook)
+        frame = ttk.Frame(self.notebook, padding=(22, 22))
         self.notebook.add(frame, text="Config")
+
+        ttk.Label(frame, text="Settings", style="Section.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 6))
+        ttk.Label(frame, text="Set defaults for branch operations and Git networking.",
+                  style="Muted.TLabel").grid(row=1, column=0, columnspan=3, sticky="w", pady=(0, 22))
 
         config = load_config()
 
-        ttk.Label(frame, text="Default Branch:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(frame, text="Default Branch:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
         self.default_branch_var = tk.StringVar(value=config.default_branch or "")
         self.default_branch_combo = ttk.Combobox(frame, textvariable=self.default_branch_var, width=28)
-        self.default_branch_combo.grid(row=0, column=1, padx=5)
+        self.default_branch_combo.grid(row=2, column=1, padx=5)
         self._branch_combos.append(self.default_branch_combo)
-        ttk.Button(frame, text="Save", command=self._save_config).grid(row=0, column=2, padx=5)
+        ttk.Button(frame, text="Save", command=self._save_config).grid(row=2, column=2, padx=5)
 
-        ttk.Label(frame, text="Merge Mode:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(frame, text="Merge Mode:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
         self.config_mode_var = tk.StringVar(value=config.default_merge_mode)
         ttk.Combobox(frame, textvariable=self.config_mode_var, values=MODE_OPTIONS, state="readonly").grid(
-            row=1, column=1, sticky=tk.W, padx=5
+            row=3, column=1, sticky=tk.W, padx=5
         )
 
         ttk.Label(frame, text="Git network: direct connection (no proxy)").grid(
-            row=2, column=0, columnspan=3, sticky=tk.W, padx=5, pady=5
+            row=4, column=0, columnspan=3, sticky=tk.W, padx=5, pady=5
         )
 
     def _refresh(self):
