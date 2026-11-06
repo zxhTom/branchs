@@ -1,7 +1,7 @@
 """Read the active IntelliJ IDEA changelist for a Git repository."""
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 from xml.etree import ElementTree
@@ -16,6 +16,7 @@ class IdeaSelection:
     name: str
     paths: list[str]
     visible_paths: list[str]
+    unassigned_paths: list[str] = field(default_factory=list)
 
 
 def _project_dir(repo: git.Repo) -> Path:
@@ -96,7 +97,21 @@ def get_active_changelist(repo: git.Repo) -> IdeaSelection:
     visible = sorted({matching[key(path)] for path in selected if key(path) in matching})
     staged_keys = {key(path) for path in staged}
     ready = [path for path in visible if key(path) in staged_keys]
-    return IdeaSelection(active.get("name", "Changes"), ready, visible)
+    assigned_keys = {key(path) for path in selected | other_paths}
+    unassigned = sorted(path for path in changed if key(path) not in assigned_keys)
+    return IdeaSelection(active.get("name", "Changes"), ready, visible, unassigned)
+
+
+def pending_changes_signature(repo: git.Repo) -> tuple:
+    """Observe both IDEA's saved snapshot and Git without staging any file."""
+    try:
+        workspace = _project_dir(repo) / ".idea" / "workspace.xml"
+        stat = workspace.stat()
+        idea_stamp = (str(workspace), stat.st_mtime_ns, stat.st_size)
+    except (OSError, ValueError):
+        idea_stamp = None
+    status = repo.git.status("--porcelain=v1", "--untracked-files=no", "-z")
+    return (repo.working_tree_dir, repo.head.commit.hexsha, idea_stamp, status)
 
 
 def stage_idea_changes(repo: git.Repo, paths: list[str]) -> None:

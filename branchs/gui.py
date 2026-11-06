@@ -46,7 +46,7 @@ from branchs.core.git import (
 )
 from branchs.core.remote import sync_remotes
 from branchs.core.publish import get_publish_selection, publish_branch
-from branchs.core.idea import commit_active_changelist, get_active_changelist, stage_idea_changes
+from branchs.core.idea import commit_active_changelist, get_active_changelist, stage_idea_changes, pending_changes_signature
 from branchs.core.network import git_network
 from branchs.core.repositories import open_repository, startup_repository
 from branchs.core.messages import COMMIT_TYPES, build_commit_message, suggest_scopes
@@ -66,6 +66,8 @@ class BranchManagerGUI:
         self._setup_style()
         self._publish_busy = False
         self._reference_popup = None
+        self._pending_signature = None
+        self._pending_focus_job = None
 
         self._branch_combos = []
         self._remote_combos = []
@@ -78,6 +80,32 @@ class BranchManagerGUI:
         if self.repo:
             remember_repo(self.repo.working_tree_dir)
         self._refresh()
+        self.root.bind("<FocusIn>", self._pending_files_focus, add="+")
+        self.root.after(1000, self._watch_pending_files)
+
+    def _pending_files_focus(self, _event=None):
+        if self._pending_focus_job is not None:
+            self.root.after_cancel(self._pending_focus_job)
+        self._pending_focus_job = self.root.after(150, self._check_pending_files)
+
+    def _check_pending_files(self):
+        self._pending_focus_job = None
+        if not self.repo or self._publish_busy:
+            return
+        try:
+            signature = pending_changes_signature(self.repo)
+            if signature != self._pending_signature:
+                if self._refresh_pending_files() is not False:
+                    self._pending_signature = signature
+        except (OSError, ValueError, git.GitCommandError) as exc:
+            # A transient Git lock or IDEA save must not stop future refreshes.
+            self.pending_hint_var.set(f"Changes refresh will retry: {exc}")
+
+    def _watch_pending_files(self):
+        try:
+            self._check_pending_files()
+        finally:
+            self.root.after(3000, self._watch_pending_files)
 
     def _setup_style(self):
         p = palette(self.theme)
@@ -1058,6 +1086,12 @@ class BranchManagerGUI:
     def _refresh_pending_files(self):
         if not self.repo:
             return
+        selected_paths = {
+            self.pending_files_tree.item(item, "values")[1]
+            for item in self.pending_files_tree.selection()
+            if len(self.pending_files_tree.item(item, "values")) > 1
+        }
+        scroll = self.pending_files_tree.yview()
         self.commit_repo_var.set(f"Repository: {self.repo.working_tree_dir}    Branch: {get_current_branch(self.repo)}")
         self.commit_scope_combo["values"] = suggest_scopes(self.repo)
         for item in self.pending_files_tree.get_children():
@@ -1069,13 +1103,16 @@ class BranchManagerGUI:
                 self.pending_files_tree.heading("path", text="IDEA CHANGE")
                 self.pending_status_var.set(
                     f"{selection.name} · {len(selection.visible_paths)} file(s) · {len(ready)} staged"
+                    + (f" · {len(selection.unassigned_paths)} not synced" if selection.unassigned_paths else "")
                 )
                 for path in selection.visible_paths:
                     is_staged = path in ready
                     self.pending_files_tree.insert("", tk.END,
                                                    values=("STAGED" if is_staged else "ADD FIRST", path),
                                                    tags=("added" if is_staged else "deleted",))
-                if not selection.visible_paths:
+                for path in selection.unassigned_paths:
+                    self.pending_files_tree.insert("", tk.END, values=("NOT SYNCED", path), tags=("modified",))
+                if not selection.visible_paths and not selection.unassigned_paths:
                     self.pending_files_tree.insert("", tk.END, values=("—", "No tracked changes in active IDEA changelist"))
                 outside = sorted(set(get_staged_paths(self.repo)) - ready)
                 if outside:
@@ -1085,6 +1122,12 @@ class BranchManagerGUI:
                 else:
                     self.pending_hint_var.set(
                         "IDEA Changes may be unstaged. Only rows marked STAGED can enter the commit."
+                    )
+                if selection.unassigned_paths:
+                    self.pending_hint_var.set(
+                        "NOT SYNCED: Git sees these tracked changes, but IDEA has not saved their changelist. "
+                        "They are shown for reference and excluded from IDEA commits. "
+                        "Save/synchronize IDEA, or explicitly stage files and use Add mode. Auto-refresh: 3 seconds."
                     )
             else:
                 selection = get_publish_selection(self.repo, "add")
@@ -1098,10 +1141,19 @@ class BranchManagerGUI:
                     self.pending_files_tree.insert("", tk.END, values=(label, path or code), tags=(tag,))
                 if not selection.display:
                     self.pending_files_tree.insert("", tk.END, values=("—", "No files staged in Git"))
-        except ValueError as exc:
+        except (ValueError, OSError, git.GitCommandError) as exc:
             self.pending_status_var.set("Selection needs attention")
             self.pending_hint_var.set("Switch to Add mode to use files already staged in Git.")
             self.pending_files_tree.insert("", tk.END, values=("NOTICE", str(exc)))
+            return False
+
+        for item in self.pending_files_tree.get_children():
+            values = self.pending_files_tree.item(item, "values")
+            if len(values) > 1 and values[1] in selected_paths:
+                self.pending_files_tree.selection_add(item)
+        if scroll:
+            self.pending_files_tree.yview_moveto(scroll[0])
+        return True
 
     def _commit_mode(self):
         return "idea" if self.commit_mode_var.get() == "IDEA current changelist" else "add"
@@ -1109,6 +1161,11 @@ class BranchManagerGUI:
     def _prepare_idea_selection(self):
         selection = get_publish_selection(self.repo, "idea")
         changelist = get_active_changelist(self.repo)
+        if changelist.unassigned_paths and not changelist.visible_paths:
+            raise ValueError(
+                "IDEA has not saved the changelist for the tracked changes shown as NOT SYNCED. "
+                "Save/synchronize IDEA or explicitly stage your files and use Add mode."
+            )
         unstaged = sorted(set(changelist.visible_paths) - set(changelist.paths))
         if unstaged:
             listed = "\n".join(unstaged[:12])
